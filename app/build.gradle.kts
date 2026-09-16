@@ -10,7 +10,9 @@ android {
 
     defaultConfig {
         applicationId = "com.dathaze.pagewall"
-        minSdk = 26
+        // 28 is the floor for ImageDecoder/AnimatedImageDrawable, which is how GIFs
+        // are animated. Every phone this targets is well past it.
+        minSdk = 28
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"

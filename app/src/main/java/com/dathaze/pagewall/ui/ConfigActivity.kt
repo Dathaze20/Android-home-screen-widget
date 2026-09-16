@@ -50,19 +50,22 @@ class ConfigActivity : ComponentActivity() {
                         ConfigScreen(
                             state = viewModel.uiState,
                             focusPage = focusPage,
-                            imageFileFor = viewModel::imageFileFor,
-                            onAssignImage = viewModel::assignImage,
+                            thumbnailFor = viewModel::thumbnailFor,
+                            onAssignMedia = viewModel::assignMedia,
                             onAssignAudio = viewModel::assignAudio,
-                            onRemoveImage = viewModel::removeImage,
+                            onRemoveMedia = viewModel::removeMedia,
                             onRemoveAudio = viewModel::removeAudio,
                             onClearPage = viewModel::clearPage,
                             onPageCountChange = viewModel::setPageCount,
                             onCrossfadeChange = viewModel::setCrossfade,
                             onParallaxChange = viewModel::setParallax,
+                            onMotionChange = viewModel::setMotion,
+                            onVideoSoundChange = viewModel::setVideoSound,
                             onAudioEnabledChange = viewModel::setAudioEnabled,
                             onAudioLoopChange = viewModel::setAudioLooping,
                             onAudioVolumeChange = viewModel::setAudioVolume,
                             onApplyWallpaper = ::applyWallpaper,
+                            onDismissError = viewModel::dismissError,
                         )
                         if (viewModel.uiState.busy) {
                             CircularProgressIndicator(

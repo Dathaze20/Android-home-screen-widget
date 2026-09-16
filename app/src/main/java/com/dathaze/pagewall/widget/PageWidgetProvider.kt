@@ -44,12 +44,13 @@ class PageWidgetProvider : AppWidgetProvider() {
             setTextViewText(
                 R.id.widget_page_detail,
                 when {
-                    config.audioTitle != null -> config.audioTitle
-                    config.hasImage -> context.getString(R.string.widget_photo_set)
+                    config.hasMedia -> config.kindLabel
                     else -> context.getString(R.string.widget_tap_to_set)
                 },
             )
-            val thumbnail = store.fileFor(config.imageFile)?.let { decodeThumbnail(it.absolutePath) }
+            // Videos carry a poster frame saved at import, so this never starts a decoder.
+            val thumbnail = store.fileFor(config.thumbnailFile)
+                ?.let { decodeThumbnail(it.absolutePath) }
             if (thumbnail != null) {
                 setImageViewBitmap(R.id.widget_thumbnail, thumbnail)
             } else {

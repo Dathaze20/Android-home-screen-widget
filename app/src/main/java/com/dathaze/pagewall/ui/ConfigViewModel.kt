@@ -9,7 +9,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.dathaze.pagewall.data.ImportResult
 import com.dathaze.pagewall.data.MediaImporter
+import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
@@ -25,12 +27,16 @@ data class ConfigUiState(
     val pageCount: Int = PageStore.DEFAULT_PAGE_COUNT,
     val crossfadeMillis: Int = PageStore.DEFAULT_CROSSFADE,
     val parallaxEnabled: Boolean = true,
+    val motionEnabled: Boolean = true,
+    val videoSoundEnabled: Boolean = false,
     val audioEnabled: Boolean = false,
     val audioLooping: Boolean = false,
     val audioVolume: Float = 0.5f,
     val wallpaperActive: Boolean = false,
     val scrollingDetected: Boolean = false,
     val busy: Boolean = false,
+    /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
+    val errorMessage: String? = null,
 )
 
 class ConfigViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,7 +46,7 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
     var uiState by mutableStateOf(ConfigUiState())
         private set
 
-    /** Display size, used to decide how large imported pictures need to be. */
+    /** Display size, used to decide how large imported photos need to be. */
     private var screenWidth = 1080
     private var screenHeight = 2400
 
@@ -61,6 +67,8 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             pageCount = store.pageCount,
             crossfadeMillis = store.crossfadeMillis,
             parallaxEnabled = store.parallaxEnabled,
+            motionEnabled = store.motionEnabled,
+            videoSoundEnabled = store.videoSoundEnabled,
             audioEnabled = store.audioEnabled,
             audioLooping = store.audioLooping,
             audioVolume = store.audioVolume,
@@ -69,31 +77,57 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    fun assignImage(pageIndex: Int, uri: Uri) = runImport {
-        val name = MediaImporter.importImage(
-            context = getApplication(),
-            store = store,
-            uri = uri,
-            pageIndex = pageIndex,
-            targetWidth = screenWidth,
-            targetHeight = screenHeight,
-        )
-        if (name != null) store.setImage(pageIndex, name)
+    fun dismissError() {
+        uiState = uiState.copy(errorMessage = null)
     }
 
-    fun assignAudio(pageIndex: Int, uri: Uri) = runImport {
-        val imported = MediaImporter.importAudio(getApplication(), store, uri, pageIndex)
-        if (imported != null) store.setAudio(pageIndex, imported.first, imported.second)
+    /** Imports a photo, GIF or video and assigns it to [pageIndex]. */
+    fun assignMedia(pageIndex: Int, uri: Uri) {
+        uiState = uiState.copy(busy = true, errorMessage = null)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                MediaImporter.importMedia(
+                    context = getApplication(),
+                    store = store,
+                    uri = uri,
+                    pageIndex = pageIndex,
+                    targetWidth = screenWidth,
+                    targetHeight = screenHeight,
+                )
+            }
+            when (result) {
+                is ImportResult.Success ->
+                    store.setMedia(pageIndex, result.fileName, result.kind, result.posterFile)
+                is ImportResult.Failure ->
+                    uiState = uiState.copy(errorMessage = result.message)
+            }
+            uiState = uiState.copy(busy = false)
+            afterChange()
+        }
     }
 
-    fun removeImage(pageIndex: Int) {
-        store.fileFor(store.page(pageIndex).imageFile)?.delete()
-        store.setImage(pageIndex, null)
+    fun assignAudio(pageIndex: Int, uri: Uri) {
+        uiState = uiState.copy(busy = true, errorMessage = null)
+        viewModelScope.launch {
+            val imported = withContext(Dispatchers.IO) {
+                MediaImporter.importAudio(getApplication(), store, uri, pageIndex)
+            }
+            if (imported != null) {
+                store.setAudio(pageIndex, imported.first, imported.second)
+            } else {
+                uiState = uiState.copy(errorMessage = "Could not read that track")
+            }
+            uiState = uiState.copy(busy = false)
+            afterChange()
+        }
+    }
+
+    fun removeMedia(pageIndex: Int) {
+        store.setMedia(pageIndex, null, MediaKind.IMAGE, null)
         afterChange()
     }
 
     fun removeAudio(pageIndex: Int) {
-        store.fileFor(store.page(pageIndex).audioFile)?.delete()
         store.setAudio(pageIndex, null, null)
         afterChange()
     }
@@ -104,8 +138,8 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setPageCount(count: Int) {
-        // Pages that fall outside the new count keep their files until explicitly cleared, so
-        // dialling the count back down and up again does not lose a photo.
+        // Pages outside the new count keep their files until explicitly cleared, so dialling the
+        // count down and back up again does not lose a photo.
         store.pageCount = count
         afterChange()
     }
@@ -117,6 +151,16 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setParallax(enabled: Boolean) {
         store.parallaxEnabled = enabled
+        afterChange()
+    }
+
+    fun setMotion(enabled: Boolean) {
+        store.motionEnabled = enabled
+        afterChange()
+    }
+
+    fun setVideoSound(enabled: Boolean) {
+        store.videoSoundEnabled = enabled
         afterChange()
     }
 
@@ -135,16 +179,7 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         afterChange()
     }
 
-    fun imageFileFor(page: PageConfig): File? = store.fileFor(page.imageFile)
-
-    private fun runImport(block: suspend () -> Unit) {
-        uiState = uiState.copy(busy = true)
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { block() }
-            uiState = uiState.copy(busy = false)
-            afterChange()
-        }
-    }
+    fun thumbnailFor(page: PageConfig): File? = store.fileFor(page.thumbnailFile)
 
     private fun afterChange() {
         refresh()

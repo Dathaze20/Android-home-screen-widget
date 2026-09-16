@@ -10,9 +10,8 @@ import java.io.File
  * Persists the page -> media assignments.
  *
  * Lives in SharedPreferences so the wallpaper engine can read it synchronously on the render
- * thread without pulling in a coroutine-based store. The wallpaper process and the UI process
- * are the same process, but the engine still registers a change listener so an edit made in
- * the config screen shows up on the home screen immediately.
+ * thread without pulling in a coroutine-based store. The engine also registers a change listener,
+ * so an edit made in the settings screen shows up on the home screen immediately.
  */
 class PageStore(context: Context) {
 
@@ -32,10 +31,20 @@ class PageStore(context: Context) {
         get() = prefs.getInt(KEY_CROSSFADE, DEFAULT_CROSSFADE)
         set(value) = prefs.edit().putInt(KEY_CROSSFADE, value.coerceIn(0, MAX_CROSSFADE)).apply()
 
-    /** Whether the image should drift with the swipe (parallax) instead of sitting still. */
+    /** Whether a still image should drift with the swipe (parallax) instead of sitting still. */
     var parallaxEnabled: Boolean
         get() = prefs.getBoolean(KEY_PARALLAX, true)
         set(value) = prefs.edit().putBoolean(KEY_PARALLAX, value).apply()
+
+    /** Whether videos and GIFs animate. Off means they hold on their first frame, saving battery. */
+    var motionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_MOTION, true)
+        set(value) = prefs.edit().putBoolean(KEY_MOTION, value).apply()
+
+    /** Whether a video's own soundtrack is audible. Off by default: silent video is the sane default. */
+    var videoSoundEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VIDEO_SOUND, false)
+        set(value) = prefs.edit().putBoolean(KEY_VIDEO_SOUND, value).apply()
 
     /** Master switch for per-page audio. Off by default: nobody wants surprise music. */
     var audioEnabled: Boolean
@@ -77,19 +86,20 @@ class PageStore(context: Context) {
     fun page(index: Int): PageConfig =
         readPages().firstOrNull { it.index == index } ?: PageConfig(index)
 
-    fun setImage(index: Int, fileName: String?) {
-        update(index) { it.copy(imageFile = fileName) }
+    /** Assigns media to a page. [posterFile] is the extracted still frame, for videos only. */
+    fun setMedia(index: Int, fileName: String?, kind: MediaKind, posterFile: String? = null) {
+        update(index) { it.copy(mediaFile = fileName, mediaKind = kind, posterFile = posterFile) }
     }
 
     fun setAudio(index: Int, fileName: String?, title: String?) {
         update(index) { it.copy(audioFile = fileName, audioTitle = title) }
     }
 
-    /** Clears both slots for a page and deletes the files it owned. */
+    /** Clears every slot for a page and deletes the files it owned. */
     fun clearPage(index: Int) {
         val existing = page(index)
-        existing.imageFile?.let { File(mediaDir, it).delete() }
-        existing.audioFile?.let { File(mediaDir, it).delete() }
+        listOfNotNull(existing.mediaFile, existing.posterFile, existing.audioFile)
+            .forEach { File(mediaDir, it).delete() }
         writePages(readPages().filterNot { it.index == index })
     }
 
@@ -108,20 +118,21 @@ class PageStore(context: Context) {
         val pages = readPages().toMutableList()
         val position = pages.indexOfFirst { it.index == index }
         val updated = transform(if (position >= 0) pages[position] else PageConfig(index))
-        // Replacing media for a slot orphans the old file, so delete it as we go.
         if (position >= 0) {
+            // Replacing a slot orphans the file it used to hold, so delete it as we go.
             val old = pages[position]
-            if (old.imageFile != null && old.imageFile != updated.imageFile) {
-                File(mediaDir, old.imageFile).delete()
-            }
-            if (old.audioFile != null && old.audioFile != updated.audioFile) {
-                File(mediaDir, old.audioFile).delete()
-            }
+            deleteIfReplaced(old.mediaFile, updated.mediaFile)
+            deleteIfReplaced(old.posterFile, updated.posterFile)
+            deleteIfReplaced(old.audioFile, updated.audioFile)
             pages[position] = updated
         } else {
             pages.add(updated)
         }
         writePages(pages)
+    }
+
+    private fun deleteIfReplaced(old: String?, new: String?) {
+        if (old != null && old != new) File(mediaDir, old).delete()
     }
 
     private fun readPages(): List<PageConfig> {
@@ -132,7 +143,13 @@ class PageStore(context: Context) {
                 val obj = array.getJSONObject(i)
                 PageConfig(
                     index = obj.getInt("index"),
-                    imageFile = obj.optString("image").takeIf { it.isNotEmpty() },
+                    // "image" is the pre-video key name, kept so an existing install is not lost.
+                    mediaFile = obj.optString("media").takeIf { it.isNotEmpty() }
+                        ?: obj.optString("image").takeIf { it.isNotEmpty() },
+                    mediaKind = runCatching {
+                        MediaKind.valueOf(obj.optString("kind", MediaKind.IMAGE.name))
+                    }.getOrDefault(MediaKind.IMAGE),
+                    posterFile = obj.optString("poster").takeIf { it.isNotEmpty() },
                     audioFile = obj.optString("audio").takeIf { it.isNotEmpty() },
                     audioTitle = obj.optString("audioTitle").takeIf { it.isNotEmpty() },
                 )
@@ -146,7 +163,9 @@ class PageStore(context: Context) {
             array.put(
                 JSONObject().apply {
                     put("index", page.index)
-                    page.imageFile?.let { put("image", it) }
+                    page.mediaFile?.let { put("media", it) }
+                    put("kind", page.mediaKind.name)
+                    page.posterFile?.let { put("poster", it) }
                     page.audioFile?.let { put("audio", it) }
                     page.audioTitle?.let { put("audioTitle", it) }
                 }
@@ -161,6 +180,8 @@ class PageStore(context: Context) {
         const val KEY_PAGE_COUNT = "page_count"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
+        const val KEY_MOTION = "motion"
+        const val KEY_VIDEO_SOUND = "video_sound"
         const val KEY_AUDIO = "audio_enabled"
         const val KEY_AUDIO_LOOP = "audio_loop"
         const val KEY_AUDIO_VOLUME = "audio_volume"

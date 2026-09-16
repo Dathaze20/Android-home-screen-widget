@@ -26,7 +26,8 @@
             </intent-filter>
         </activity>
 
-        <!-- Gallery ⇒ Share ⇒ Page Wallpaper: assign media without opening the app proper. -->
+        <!-- Gallery ⇒ Share ⇒ Page Wallpaper: assign a photo, GIF or video without opening the
+             app proper. -->
         <activity
             android:name=".ui.AssignShareActivity"
             android:excludeFromRecents="true"
@@ -37,6 +38,7 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

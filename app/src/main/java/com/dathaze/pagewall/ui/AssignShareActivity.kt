@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.dathaze.pagewall.data.ImportResult
 import com.dathaze.pagewall.data.MediaImporter
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.widget.PageWidgetProvider
@@ -28,7 +29,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Share target: send a photo (or a track) here from the gallery and pick which page it belongs to.
+ * Share target: send a photo, GIF, video (or a track) here from the gallery and pick which page
+ * it belongs to.
  *
  * This is the quickest route once the wallpaper is set up — Gallery ⇒ Share ⇒ Page Wallpaper ⇒
  * tap a page — with no need to go looking for the app.
@@ -53,7 +55,7 @@ class AssignShareActivity : ComponentActivity() {
                 val scrollState = rememberScrollState()
                 AlertDialog(
                     onDismissRequest = { finish() },
-                    title = { Text(if (isAudio) "Add track to page" else "Set photo as page") },
+                    title = { Text(if (isAudio) "Add track to page" else "Use on page") },
                     text = {
                         Column(
                             modifier = Modifier
@@ -82,27 +84,36 @@ class AssignShareActivity : ComponentActivity() {
     private fun assign(store: PageStore, uri: Uri, page: Int, isAudio: Boolean) {
         val metrics = resources.displayMetrics
         lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) {
+            val message = withContext(Dispatchers.IO) {
                 if (isAudio) {
-                    MediaImporter.importAudio(this@AssignShareActivity, store, uri, page)
-                        ?.also { store.setAudio(page, it.first, it.second) } != null
+                    val imported = MediaImporter.importAudio(this@AssignShareActivity, store, uri, page)
+                    if (imported == null) {
+                        "Could not read that track"
+                    } else {
+                        store.setAudio(page, imported.first, imported.second)
+                        "Saved to page ${page + 1}"
+                    }
                 } else {
-                    MediaImporter.importImage(
-                        context = this@AssignShareActivity,
-                        store = store,
-                        uri = uri,
-                        pageIndex = page,
-                        targetWidth = metrics.widthPixels,
-                        targetHeight = metrics.heightPixels,
-                    )?.also { store.setImage(page, it) } != null
+                    when (
+                        val result = MediaImporter.importMedia(
+                            context = this@AssignShareActivity,
+                            store = store,
+                            uri = uri,
+                            pageIndex = page,
+                            targetWidth = metrics.widthPixels,
+                            targetHeight = metrics.heightPixels,
+                        )
+                    ) {
+                        is ImportResult.Success -> {
+                            store.setMedia(page, result.fileName, result.kind, result.posterFile)
+                            "Saved to page ${page + 1}"
+                        }
+                        is ImportResult.Failure -> result.message
+                    }
                 }
             }
             PageWidgetProvider.notifyPageChanged(this@AssignShareActivity, store.currentPage)
-            Toast.makeText(
-                this@AssignShareActivity,
-                if (ok) "Saved to page ${page + 1}" else "Could not read that file",
-                Toast.LENGTH_SHORT,
-            ).show()
+            Toast.makeText(this@AssignShareActivity, message, Toast.LENGTH_LONG).show()
             finish()
         }
     }

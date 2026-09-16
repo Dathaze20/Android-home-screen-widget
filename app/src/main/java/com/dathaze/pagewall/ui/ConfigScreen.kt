@@ -23,8 +23,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,10 +49,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
 import kotlinx.coroutines.Dispatchers
@@ -61,26 +66,31 @@ import java.io.File
 fun ConfigScreen(
     state: ConfigUiState,
     focusPage: Int?,
-    imageFileFor: (PageConfig) -> File?,
-    onAssignImage: (Int, Uri) -> Unit,
+    thumbnailFor: (PageConfig) -> File?,
+    onAssignMedia: (Int, Uri) -> Unit,
     onAssignAudio: (Int, Uri) -> Unit,
-    onRemoveImage: (Int) -> Unit,
+    onRemoveMedia: (Int) -> Unit,
     onRemoveAudio: (Int) -> Unit,
     onClearPage: (Int) -> Unit,
     onPageCountChange: (Int) -> Unit,
     onCrossfadeChange: (Int) -> Unit,
     onParallaxChange: (Boolean) -> Unit,
+    onMotionChange: (Boolean) -> Unit,
+    onVideoSoundChange: (Boolean) -> Unit,
     onAudioEnabledChange: (Boolean) -> Unit,
     onAudioLoopChange: (Boolean) -> Unit,
     onAudioVolumeChange: (Float) -> Unit,
     onApplyWallpaper: () -> Unit,
+    onDismissError: () -> Unit,
 ) {
     // Which page a picker was opened for; the result callback has no other way to know.
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
 
-    val imagePicker = rememberLauncherForActivityResult(
+    // One picker for photos, GIFs and videos — the system photo picker handles all three and
+    // needs no storage permission.
+    val mediaPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { onAssignImage(pendingPage, it) } }
+    ) { uri -> uri?.let { onAssignMedia(pendingPage, it) } }
 
     val audioPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -108,23 +118,23 @@ fun ConfigScreen(
             )
         }
 
-        item { StatusCard(state, onApplyWallpaper) }
+        item { StatusCard(state, onApplyWallpaper, onDismissError) }
 
         items(state.pages, key = { it.index }) { page ->
             PageCard(
                 page = page,
-                imageFile = imageFileFor(page),
-                onPickImage = {
+                thumbnail = thumbnailFor(page),
+                onPickMedia = {
                     pendingPage = page.index
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    mediaPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                     )
                 },
                 onPickAudio = {
                     pendingPage = page.index
                     audioPicker.launch("audio/*")
                 },
-                onRemoveImage = { onRemoveImage(page.index) },
+                onRemoveMedia = { onRemoveMedia(page.index) },
                 onRemoveAudio = { onRemoveAudio(page.index) },
                 onClear = { onClearPage(page.index) },
                 audioSectionVisible = state.audioEnabled,
@@ -137,6 +147,8 @@ fun ConfigScreen(
                 onPageCountChange = onPageCountChange,
                 onCrossfadeChange = onCrossfadeChange,
                 onParallaxChange = onParallaxChange,
+                onMotionChange = onMotionChange,
+                onVideoSoundChange = onVideoSoundChange,
                 onAudioEnabledChange = onAudioEnabledChange,
                 onAudioLoopChange = onAudioLoopChange,
                 onAudioVolumeChange = onAudioVolumeChange,
@@ -148,33 +160,67 @@ fun ConfigScreen(
 }
 
 @Composable
-private fun StatusCard(state: ConfigUiState, onApplyWallpaper: () -> Unit) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!state.wallpaperActive) {
-                Text("Not your wallpaper yet", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Assign photos below, then apply the wallpaper. After that it runs on its " +
-                        "own — you never need to open this app again unless you want to swap a photo.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Button(onClick = onApplyWallpaper) { Text("Set as wallpaper") }
-            } else if (!state.scrollingDetected) {
-                Text("Turn on wallpaper scrolling", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "The wallpaper is active, but your launcher has not reported a page scroll " +
-                        "yet. On One UI: long-press the home screen → Settings → turn on " +
-                        "“Wallpaper scrolling” (some versions call it parallax effect). " +
-                        "Without it Android never tells any wallpaper which page you are on.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                TextButton(onClick = onApplyWallpaper) { Text("Re-apply wallpaper") }
-            } else {
-                Text("Active", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Swipe between home screens to see each photo. Changes here apply instantly.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+private fun StatusCard(
+    state: ConfigUiState,
+    onApplyWallpaper: () -> Unit,
+    onDismissError: () -> Unit,
+) {
+    // One root node: a LazyColumn item stacks siblings on top of each other rather than below.
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (state.errorMessage != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(state.errorMessage, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onDismissError) { Text("OK") }
+                }
+            }
+        }
+
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    !state.wallpaperActive -> {
+                        Text("Not your wallpaper yet", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Assign something to each page below, then apply the wallpaper. " +
+                                "After that it runs on its own \u2014 you never need to open this " +
+                                "app again unless you want to swap a page.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(onClick = onApplyWallpaper) { Text("Set as wallpaper") }
+                    }
+
+                    !state.scrollingDetected -> {
+                        Text(
+                            "Turn on wallpaper scrolling",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "The wallpaper is active, but your launcher has not reported a page " +
+                                "scroll yet. On One UI: long-press the home screen \u2192 " +
+                                "Settings \u2192 turn on \u201cWallpaper scrolling\u201d (some " +
+                                "versions call it the parallax effect). Without it Android never " +
+                                "tells any wallpaper which page you are on.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        TextButton(onClick = onApplyWallpaper) { Text("Re-apply wallpaper") }
+                    }
+
+                    else -> {
+                        Text("Active", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Swipe between home screens to see each page. Changes here apply " +
+                                "instantly.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
             }
         }
     }
@@ -183,33 +229,24 @@ private fun StatusCard(state: ConfigUiState, onApplyWallpaper: () -> Unit) {
 @Composable
 private fun PageCard(
     page: PageConfig,
-    imageFile: File?,
-    onPickImage: () -> Unit,
+    thumbnail: File?,
+    onPickMedia: () -> Unit,
     onPickAudio: () -> Unit,
-    onRemoveImage: () -> Unit,
+    onRemoveMedia: () -> Unit,
     onRemoveAudio: () -> Unit,
     onClear: () -> Unit,
     audioSectionVisible: Boolean,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(),
-    ) {
+    Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PageThumbnail(imageFile)
+            PageThumbnail(thumbnail, page.mediaKind, page.hasMedia)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    "Page ${page.index + 1}",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    if (page.hasImage) "Photo set" else "No photo",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                Text("Page ${page.index + 1}", style = MaterialTheme.typography.titleMedium)
+                Text(page.kindLabel, style = MaterialTheme.typography.bodySmall)
                 if (audioSectionVisible) {
                     Text(
                         page.audioTitle ?: "No track",
@@ -217,27 +254,31 @@ private fun PageCard(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onPickImage) {
+                    OutlinedButton(onClick = onPickMedia) {
                         Icon(Icons.Default.Photo, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (page.hasImage) "Change" else "Photo")
+                        Text(if (page.hasMedia) "Change" else "Choose")
                     }
                     if (audioSectionVisible) {
                         OutlinedButton(onClick = onPickAudio) {
-                            Icon(Icons.Default.MusicNote, contentDescription = null, Modifier.size(18.dp))
+                            Icon(
+                                Icons.Default.MusicNote,
+                                contentDescription = null,
+                                Modifier.size(18.dp),
+                            )
                             Spacer(Modifier.width(6.dp))
                             Text("Song")
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (page.hasImage) {
-                        TextButton(onClick = onRemoveImage) { Text("Remove photo") }
+                    if (page.hasMedia) {
+                        TextButton(onClick = onRemoveMedia) { Text("Remove") }
                     }
                     if (audioSectionVisible && page.hasAudio) {
                         TextButton(onClick = onRemoveAudio) { Text("Remove song") }
                     }
-                    if (page.hasImage || page.hasAudio) {
+                    if (page.hasMedia || page.hasAudio) {
                         TextButton(onClick = onClear) { Text("Clear") }
                     }
                 }
@@ -246,19 +287,23 @@ private fun PageCard(
     }
 }
 
-/** Decodes the page thumbnail off the main thread, re-running when the file is replaced. */
+/**
+ * Decodes the page thumbnail off the main thread, re-running when the file is replaced.
+ * For a video this is the poster frame saved at import, so no decoder is started here.
+ */
 @Composable
-private fun PageThumbnail(file: File?) {
+private fun PageThumbnail(file: File?, kind: MediaKind, hasMedia: Boolean) {
     val stamp = file?.lastModified() ?: 0L
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file?.path, stamp) {
+    val bitmap by produceState<ImageBitmap?>(null, file?.path, stamp) {
         value = if (file == null) {
             null
         } else {
             withContext(Dispatchers.IO) {
                 runCatching {
-                    BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
-                        inSampleSize = 8
-                    })?.asImageBitmap()
+                    BitmapFactory.decodeFile(
+                        file.absolutePath,
+                        BitmapFactory.Options().apply { inSampleSize = 8 },
+                    )?.asImageBitmap()
                 }.getOrNull()
             }
         }
@@ -279,8 +324,27 @@ private fun PageThumbnail(file: File?) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(72.dp, 110.dp),
             )
-        } else {
+        }
+        if (!hasMedia) {
             Icon(Icons.Default.Photo, contentDescription = null)
+        } else {
+            // A badge in the corner so video and GIF pages are identifiable at a glance.
+            val badge = when (kind) {
+                MediaKind.VIDEO -> Icons.Default.PlayCircle to "Video"
+                MediaKind.GIF -> Icons.Default.Gif to "GIF"
+                MediaKind.IMAGE -> null
+            }
+            if (badge != null) {
+                Icon(
+                    imageVector = badge.first,
+                    contentDescription = badge.second,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                        .size(20.dp),
+                )
+            }
         }
     }
 }
@@ -291,6 +355,8 @@ private fun SettingsCard(
     onPageCountChange: (Int) -> Unit,
     onCrossfadeChange: (Int) -> Unit,
     onParallaxChange: (Boolean) -> Unit,
+    onMotionChange: (Boolean) -> Unit,
+    onVideoSoundChange: (Boolean) -> Unit,
     onAudioEnabledChange: (Boolean) -> Unit,
     onAudioLoopChange: (Boolean) -> Unit,
     onAudioVolumeChange: (Float) -> Unit,
@@ -312,8 +378,29 @@ private fun SettingsCard(
                 ) { Text("+", style = MaterialTheme.typography.titleLarge) }
             }
 
+            SettingSwitch(
+                title = "Animate GIFs and videos",
+                subtitle = "Off holds each one on its first frame, which uses far less battery.",
+                checked = state.motionEnabled,
+                onCheckedChange = onMotionChange,
+            )
+
+            if (state.motionEnabled) {
+                SettingSwitch(
+                    title = "Video sound",
+                    subtitle = "Play a video page's own soundtrack.",
+                    checked = state.videoSoundEnabled,
+                    onCheckedChange = onVideoSoundChange,
+                )
+            }
+
             Column {
                 Text("Crossfade: ${state.crossfadeMillis} ms")
+                Text(
+                    "Photo and GIF pages fade into each other. Video pages cut, because the " +
+                        "video player takes over the whole screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Slider(
                     value = state.crossfadeMillis.toFloat(),
                     onValueChange = { onCrossfadeChange(it.toInt()) },
@@ -321,28 +408,20 @@ private fun SettingsCard(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Parallax drift")
-                    Text(
-                        "Let the photo slide a little as you swipe.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(checked = state.parallaxEnabled, onCheckedChange = onParallaxChange)
-            }
+            SettingSwitch(
+                title = "Parallax drift",
+                subtitle = "Let a photo slide a little as you swipe.",
+                checked = state.parallaxEnabled,
+                onCheckedChange = onParallaxChange,
+            )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Play a song per page")
-                    Text(
-                        "Plays while you are on the home screen, and stops when you open an app " +
-                            "or the screen turns off. Never interrupts music already playing.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Switch(checked = state.audioEnabled, onCheckedChange = onAudioEnabledChange)
-            }
+            SettingSwitch(
+                title = "Play a song per page",
+                subtitle = "Plays while you are on the home screen, and stops when you open an " +
+                    "app or the screen turns off. Never interrupts music already playing.",
+                checked = state.audioEnabled,
+                onCheckedChange = onAudioEnabledChange,
+            )
 
             if (state.audioEnabled) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -359,6 +438,22 @@ private fun SettingsCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
