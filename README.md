@@ -1,5 +1,7 @@
 # Android-home-screen-widget
 
+[![Build APK](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml/badge.svg)](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml)
+
 **Page Wallpaper** — put a different **photo, GIF or video** on every home screen page.
 Set it up once; after that it runs by itself with the app closed.
 
@@ -140,7 +142,17 @@ keeps working after you delete the original from your gallery.
 
 ## Status
 
-AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28 (needed for the GIF decoder). It has **not** been
-compiled or run on a device yet — the environment it was written in has no Android SDK and no
-network access to fetch one. The GitHub Actions workflow is the first thing that will actually
-compile it; expect to fix a stray import or two on the first run.
+AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28 (needed for the GIF decoder).
+
+**Compiles cleanly** — the GitHub Actions workflow builds a debug APK on every push, and the
+badge above reflects the latest run.
+
+**Not yet run on a phone.** Everything below this line is still unverified against real hardware,
+and these are the parts most likely to need a tweak:
+
+- whether One UI's launcher reports scroll offsets the way the page maths expects
+- whether `SCALE_TO_FIT_WITH_CROPPING` crops video the way it should on this device
+- how cleanly the surface hands back and forth between MediaPlayer and the canvas when you swipe
+  between a video page and a photo page
+
+If something looks wrong on the phone, that list is where to look first.
