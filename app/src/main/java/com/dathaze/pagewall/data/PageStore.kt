@@ -112,6 +112,35 @@ class PageStore(context: Context) {
         update(index) { it.copy(mediaFile = fileName, mediaKind = kind, posterFile = posterFile) }
     }
 
+    /**
+     * Assigns several pages in one write.
+     *
+     * Doing this as a loop of [setMedia] calls meant one read-modify-write of the whole page list
+     * per photo, so any single failure mid-way left the rest of the batch unapplied. One write
+     * either lands completely or not at all.
+     */
+    fun setMediaBatch(assignments: List<PageAssignment>) {
+        if (assignments.isEmpty()) return
+        val pages = readPages().toMutableList()
+        assignments.forEach { assignment ->
+            val position = pages.indexOfFirst { it.index == assignment.index }
+            val old = if (position >= 0) pages[position] else null
+            val updated = (old ?: PageConfig(assignment.index)).copy(
+                mediaFile = assignment.fileName,
+                mediaKind = assignment.kind,
+                posterFile = assignment.posterFile,
+            )
+            if (old != null) {
+                deleteIfReplaced(old.mediaFile, updated.mediaFile)
+                deleteIfReplaced(old.posterFile, updated.posterFile)
+                pages[position] = updated
+            } else {
+                pages.add(updated)
+            }
+        }
+        writePages(pages)
+    }
+
     fun setAudio(index: Int, fileName: String?, title: String?) {
         update(index) { it.copy(audioFile = fileName, audioTitle = title) }
     }

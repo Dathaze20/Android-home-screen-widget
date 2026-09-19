@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
@@ -44,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.PageConfig
+import com.dathaze.pagewall.data.PageStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -90,17 +91,35 @@ fun HomeScreen(
     // Which tile a single-page picker was opened for; the result callback has no other way to know.
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
 
+    val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+
     val singlePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { onAssignMedia(pendingPage, it) } }
 
-    // Filling every page in one go is the main path: pick several, they land in order.
+    // Filling every page in one go is the fast path: pick several, they land in order.
+    // The limit is a constant rather than the page count: this launcher is registered once, on
+    // first composition, so a count read here would be frozen at whatever it was back then.
     val multiPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(state.pageCount.coerceAtLeast(2))
+        ActivityResultContracts.PickMultipleVisualMedia(PageStore.MAX_PAGES)
     ) { uris -> if (uris.isNotEmpty()) onFillPages(uris) }
 
-    val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+    // Some pickers hand back a single photo however many were tapped, which leaves most pages
+    // empty. This walks the empty pages one at a time instead, and Back ends it.
+    var chainQueue by remember { mutableStateOf<List<Int>>(emptyList()) }
+    val chainPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        val page = chainQueue.firstOrNull()
+        chainQueue = if (uri == null) emptyList() else chainQueue.drop(1)
+        if (uri != null && page != null) onAssignMedia(page, uri)
+    }
+    LaunchedEffect(chainQueue) {
+        chainQueue.firstOrNull()?.let { chainPicker.launch(request) }
+    }
+
     val assignedCount = state.pages.count { it.hasMedia }
+    val emptyPages = state.pages.filterNot { it.hasMedia }.map { it.index }
 
     // Arriving from the widget means "change this page", so skip the screen and open the picker.
     // Guarded by a saved flag so a rotation does not reopen it.
@@ -134,14 +153,29 @@ fun HomeScreen(
             onLongPressPage = onClearPage,
         )
 
-        if (state.errorMessage != null) {
-            ErrorBanner(state.errorMessage, onDismissError)
+        Text(
+            text = "Tap a page to change it · long-press to clear it",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        val banner = state.errorMessage ?: state.noticeMessage
+        if (banner != null) {
+            MessageBanner(
+                message = banner,
+                isError = state.errorMessage != null,
+                onDismiss = onDismissError,
+            )
         }
 
         PrimaryAction(
             state = state,
             assignedCount = assignedCount,
+            emptyPageCount = emptyPages.size,
             onPickAll = { multiPicker.launch(request) },
+            onFillOneByOne = { chainQueue = emptyPages },
             onApplyWallpaper = onApplyWallpaper,
         )
     }
@@ -159,11 +193,17 @@ private fun Header(state: ConfigUiState, assignedCount: Int, onOpenSettings: () 
                 )
                 if (state.wallpaperActive) {
                     Spacer(Modifier.size(8.dp))
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "Active",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
+                    // A label, not a control. The tick that used to sit here looked tappable
+                    // and did nothing when tapped.
+                    Text(
+                        text = "ON",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
             }
@@ -333,7 +373,9 @@ private fun PageTile(
 private fun PrimaryAction(
     state: ConfigUiState,
     assignedCount: Int,
+    emptyPageCount: Int,
     onPickAll: () -> Unit,
+    onFillOneByOne: () -> Unit,
     onApplyWallpaper: () -> Unit,
 ) {
     val readyToApply = assignedCount > 0 && !state.wallpaperActive
@@ -369,10 +411,26 @@ private fun PrimaryAction(
         }
     }
 
+    // The guaranteed route when a picker refuses to return more than one photo at a time.
+    if (emptyPageCount > 0 && !state.busy) {
+        TextButton(onClick = onFillOneByOne, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = if (emptyPageCount == 1) {
+                    "Fill the empty page"
+                } else {
+                    "Fill the $emptyPageCount empty pages one at a time"
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
     val hint = when {
         readyToApply -> "Your phone will ask where to put it — choose Home screen."
         state.wallpaperActive && !state.scrollingDetected ->
             "Still the same on every page? Tap the settings icon."
+
         else -> null
     }
     if (hint != null) {
@@ -387,19 +445,29 @@ private fun PrimaryAction(
 }
 
 @Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
+private fun MessageBanner(message: String, isError: Boolean, onDismiss: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.errorContainer)
+            .background(
+                if (isError) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                }
+            )
             .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onErrorContainer,
+            color = if (isError) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            },
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onDismiss) { Text("OK") }

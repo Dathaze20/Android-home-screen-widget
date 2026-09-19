@@ -56,3 +56,11 @@ data class PageConfig(
             else -> "Photo"
         }
 }
+
+/** One page's worth of a bulk assignment, applied together by [PageStore.setMediaBatch]. */
+data class PageAssignment(
+    val index: Int,
+    val fileName: String,
+    val kind: MediaKind,
+    val posterFile: String?,
+)

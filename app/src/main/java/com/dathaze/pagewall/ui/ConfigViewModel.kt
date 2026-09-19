@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.dathaze.pagewall.data.ImportResult
 import com.dathaze.pagewall.data.MediaImporter
 import com.dathaze.pagewall.data.MediaKind
+import com.dathaze.pagewall.data.PageAssignment
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
@@ -41,6 +42,8 @@ data class ConfigUiState(
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
+    /** Neutral confirmation of what an action actually did. Cleared once shown. */
+    val noticeMessage: String? = null,
 )
 
 class ConfigViewModel(application: Application) : AndroidViewModel(application) {
@@ -84,7 +87,7 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun dismissError() {
-        uiState = uiState.copy(errorMessage = null)
+        uiState = uiState.copy(errorMessage = null, noticeMessage = null)
     }
 
     /** Imports a photo, GIF or video and assigns it to [pageIndex]. */
@@ -165,11 +168,15 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun fillPages(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        uiState = uiState.copy(busy = true, errorMessage = null)
+        uiState = uiState.copy(busy = true, errorMessage = null, noticeMessage = null)
         viewModelScope.launch {
-            val failures = withContext(Dispatchers.IO) {
+            val pageCount = store.pageCount
+            val usable = uris.take(pageCount)
+
+            val outcome = withContext(Dispatchers.IO) {
+                val assignments = mutableListOf<PageAssignment>()
                 val problems = mutableListOf<String>()
-                uris.take(store.pageCount).forEachIndexed { pageIndex, uri ->
+                usable.forEachIndexed { pageIndex, uri ->
                     when (
                         val result = MediaImporter.importMedia(
                             context = getApplication(),
@@ -180,16 +187,34 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
                             targetHeight = screenHeight,
                         )
                     ) {
-                        is ImportResult.Success ->
-                            store.setMedia(pageIndex, result.fileName, result.kind, result.posterFile)
+                        is ImportResult.Success -> assignments += PageAssignment(
+                            index = pageIndex,
+                            fileName = result.fileName,
+                            kind = result.kind,
+                            posterFile = result.posterFile,
+                        )
+
                         is ImportResult.Failure -> problems += result.message
                     }
                 }
-                problems
+                // One write for the whole batch, so a failure part-way cannot strand the rest.
+                store.setMediaBatch(assignments)
+                assignments.size to problems
             }
+
+            val (placed, problems) = outcome
             uiState = uiState.copy(
                 busy = false,
-                errorMessage = failures.firstOrNull(),
+                errorMessage = problems.firstOrNull(),
+                // Say plainly what landed. A picker that hands back fewer photos than were
+                // tapped used to look like the app losing them.
+                noticeMessage = when {
+                    placed == 0 -> null
+                    placed < pageCount ->
+                        "Set $placed of $pageCount pages. Tap an empty page to add one."
+
+                    else -> "All $placed pages set."
+                },
             )
             afterChange()
         }
