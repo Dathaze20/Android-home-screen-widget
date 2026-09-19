@@ -182,6 +182,17 @@ class PageWallpaperService : WallpaperService() {
 
             pan = if (store.parallaxEnabled) xOffset.coerceIn(0f, 1f) else CENTER_PAN
 
+            // One page occupies xOffsetStep of the scroll range, so the launcher's page count
+            // falls out of it. This is the only moment any app is told how many home screens
+            // exist, which is why the count cannot be known before the wallpaper is applied.
+            if (xOffsetStep > 0f && xOffsetStep.isFinite()) {
+                val launcherPages = ((1f / xOffsetStep).roundToInt() + 1)
+                    .coerceIn(PageStore.MIN_PAGES, PageStore.MAX_PAGES)
+                if (launcherPages != store.detectedPageCount) {
+                    store.detectedPageCount = launcherPages
+                }
+            }
+
             val page = if (xOffsetStep > 0f && xOffsetStep.isFinite()) {
                 (xOffset / xOffsetStep).roundToInt()
             } else {
@@ -215,7 +226,9 @@ class PageWallpaperService : WallpaperService() {
         override fun onSharedPreferenceChanged(prefs: SharedPreferences?, key: String?) {
             when (key) {
                 // Written by this engine; reacting to it would loop.
-                PageStore.KEY_CURRENT_PAGE, PageStore.KEY_SAW_OFFSETS -> return
+                PageStore.KEY_CURRENT_PAGE,
+                PageStore.KEY_SAW_OFFSETS,
+                PageStore.KEY_DETECTED_PAGES -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     cache.clear()

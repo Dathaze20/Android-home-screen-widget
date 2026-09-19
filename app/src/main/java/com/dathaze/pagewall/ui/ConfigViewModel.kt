@@ -25,6 +25,10 @@ import java.io.File
 data class ConfigUiState(
     val pages: List<PageConfig> = emptyList(),
     val pageCount: Int = PageStore.DEFAULT_PAGE_COUNT,
+    /** What the launcher reported, or 0 if it has not been seen yet. */
+    val detectedPageCount: Int = 0,
+    /** True when [pageCount] came from the launcher rather than a guess or a manual override. */
+    val pageCountIsDetected: Boolean = false,
     val crossfadeMillis: Int = PageStore.DEFAULT_CROSSFADE,
     val parallaxEnabled: Boolean = true,
     val motionEnabled: Boolean = true,
@@ -65,6 +69,8 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         uiState = uiState.copy(
             pages = store.pages(),
             pageCount = store.pageCount,
+            detectedPageCount = store.detectedPageCount,
+            pageCountIsDetected = store.pageCountIsDetected,
             crossfadeMillis = store.crossfadeMillis,
             parallaxEnabled = store.parallaxEnabled,
             motionEnabled = store.motionEnabled,
@@ -137,11 +143,56 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         afterChange()
     }
 
+    /** Manual correction, used only when the launcher's own count is wrong. */
     fun setPageCount(count: Int) {
         // Pages outside the new count keep their files until explicitly cleared, so dialling the
         // count down and back up again does not lose a photo.
-        store.pageCount = count
+        store.pageCountOverride = count
         afterChange()
+    }
+
+    /** Drops a manual correction and goes back to what the launcher reports. */
+    fun resetPageCount() {
+        store.pageCountOverride = 0
+        afterChange()
+    }
+
+    /**
+     * Fills pages from a multi-select, in the order they were picked.
+     *
+     * This is the one-shot path: choose several photos, they land on page 1, 2, 3 and so on.
+     * Extra picks beyond the page count are ignored rather than silently dropped onto nothing.
+     */
+    fun fillPages(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        uiState = uiState.copy(busy = true, errorMessage = null)
+        viewModelScope.launch {
+            val failures = withContext(Dispatchers.IO) {
+                val problems = mutableListOf<String>()
+                uris.take(store.pageCount).forEachIndexed { pageIndex, uri ->
+                    when (
+                        val result = MediaImporter.importMedia(
+                            context = getApplication(),
+                            store = store,
+                            uri = uri,
+                            pageIndex = pageIndex,
+                            targetWidth = screenWidth,
+                            targetHeight = screenHeight,
+                        )
+                    ) {
+                        is ImportResult.Success ->
+                            store.setMedia(pageIndex, result.fileName, result.kind, result.posterFile)
+                        is ImportResult.Failure -> problems += result.message
+                    }
+                }
+                problems
+            }
+            uiState = uiState.copy(
+                busy = false,
+                errorMessage = failures.firstOrNull(),
+            )
+            afterChange()
+        }
     }
 
     fun setCrossfade(millis: Int) {

@@ -21,10 +21,31 @@ class PageStore(context: Context) {
 
     val mediaDir: File = File(appContext.filesDir, "pages").apply { mkdirs() }
 
-    /** Number of home screen pages the user wants to configure. */
-    var pageCount: Int
-        get() = prefs.getInt(KEY_PAGE_COUNT, DEFAULT_PAGE_COUNT).coerceIn(MIN_PAGES, MAX_PAGES)
-        set(value) = prefs.edit().putInt(KEY_PAGE_COUNT, value.coerceIn(MIN_PAGES, MAX_PAGES)).apply()
+    /**
+     * How many home screen pages the launcher actually has, worked out by the engine from the
+     * scroll step it is given. 0 until the wallpaper has run and been swiped at least once —
+     * there is no API that reports this before then.
+     */
+    var detectedPageCount: Int
+        get() = prefs.getInt(KEY_DETECTED_PAGES, 0)
+        set(value) = prefs.edit().putInt(KEY_DETECTED_PAGES, value.coerceIn(0, MAX_PAGES)).apply()
+
+    /** Set only when the user corrects the count by hand. 0 means "trust the detection". */
+    var pageCountOverride: Int
+        get() = prefs.getInt(KEY_PAGE_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_PAGE_COUNT, value.coerceIn(0, MAX_PAGES)).apply()
+
+    /** The count to actually use: the user's correction, else what was detected, else a guess. */
+    val pageCount: Int
+        get() = when {
+            pageCountOverride > 0 -> pageCountOverride
+            detectedPageCount > 0 -> detectedPageCount
+            else -> DEFAULT_PAGE_COUNT
+        }.coerceIn(MIN_PAGES, MAX_PAGES)
+
+    /** True once the count came from the launcher rather than from the fallback guess. */
+    val pageCountIsDetected: Boolean
+        get() = pageCountOverride <= 0 && detectedPageCount > 0
 
     /** Crossfade duration between pages, in milliseconds. 0 disables the fade. */
     var crossfadeMillis: Int
@@ -178,6 +199,7 @@ class PageStore(context: Context) {
         const val PREFS_NAME = "pagewall"
         const val KEY_PAGES = "pages"
         const val KEY_PAGE_COUNT = "page_count"
+        const val KEY_DETECTED_PAGES = "detected_pages"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
         const val KEY_MOTION = "motion"

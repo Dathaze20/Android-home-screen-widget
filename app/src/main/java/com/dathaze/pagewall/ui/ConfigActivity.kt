@@ -6,16 +6,19 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -23,10 +26,10 @@ import com.dathaze.pagewall.wallpaper.PageWallpaperService
 import kotlinx.coroutines.launch
 
 /**
- * The one-time setup screen: assign a photo (and optionally a track) to each home screen page.
+ * The app: one screen showing every home screen page as a tile.
  *
- * After the wallpaper is applied this screen is only needed to change an assignment; the
- * wallpaper keeps working with the app closed.
+ * After the wallpaper is applied this is only needed to change a page; the wallpaper keeps
+ * working with the app closed.
  */
 class ConfigActivity : ComponentActivity() {
 
@@ -34,6 +37,7 @@ class ConfigActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         val metrics = resources.displayMetrics
         viewModel.setScreenSize(metrics.widthPixels, metrics.heightPixels)
@@ -42,45 +46,49 @@ class ConfigActivity : ComponentActivity() {
 
         setContent {
             PageWallTheme {
+                var settingsOpen by remember { mutableStateOf(false) }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    Box(Modifier.fillMaxSize()) {
-                        ConfigScreen(
-                            state = viewModel.uiState,
-                            focusPage = focusPage,
-                            thumbnailFor = viewModel::thumbnailFor,
-                            onAssignMedia = viewModel::assignMedia,
-                            onAssignAudio = viewModel::assignAudio,
-                            onRemoveMedia = viewModel::removeMedia,
-                            onRemoveAudio = viewModel::removeAudio,
-                            onClearPage = viewModel::clearPage,
-                            onPageCountChange = viewModel::setPageCount,
-                            onCrossfadeChange = viewModel::setCrossfade,
-                            onParallaxChange = viewModel::setParallax,
-                            onMotionChange = viewModel::setMotion,
-                            onVideoSoundChange = viewModel::setVideoSound,
-                            onAudioEnabledChange = viewModel::setAudioEnabled,
-                            onAudioLoopChange = viewModel::setAudioLooping,
-                            onAudioVolumeChange = viewModel::setAudioVolume,
-                            onApplyWallpaper = ::applyWallpaper,
-                            onDismissError = viewModel::dismissError,
-                        )
-                        if (viewModel.uiState.busy) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 12.dp)
-                            )
-                        }
-                    }
+                    HomeScreen(
+                        // The grid is sized to the space it gets, so it has to be told about the
+                        // status bar and gesture bar rather than drawing underneath them.
+                        modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing),
+                        state = viewModel.uiState,
+                        focusPage = focusPage,
+                        onAssignMedia = viewModel::assignMedia,
+                        onFillPages = viewModel::fillPages,
+                        onClearPage = viewModel::clearPage,
+                        onApplyWallpaper = ::applyWallpaper,
+                        onOpenSettings = { settingsOpen = true },
+                        onDismissError = viewModel::dismissError,
+                        thumbnailFor = viewModel::thumbnailFor,
+                    )
+                }
+
+                if (settingsOpen) {
+                    SettingsSheet(
+                        state = viewModel.uiState,
+                        onDismiss = { settingsOpen = false },
+                        onPageCountChange = viewModel::setPageCount,
+                        onResetPageCount = viewModel::resetPageCount,
+                        onCrossfadeChange = viewModel::setCrossfade,
+                        onParallaxChange = viewModel::setParallax,
+                        onMotionChange = viewModel::setMotion,
+                        onVideoSoundChange = viewModel::setVideoSound,
+                        onAudioEnabledChange = viewModel::setAudioEnabled,
+                        onAudioLoopChange = viewModel::setAudioLooping,
+                        onAudioVolumeChange = viewModel::setAudioVolume,
+                        onApplyWallpaper = ::applyWallpaper,
+                    )
                 }
             }
         }
 
-        // The wallpaper can be applied or removed outside the app, and the engine writes back
-        // whether it has seen scroll offsets, so re-read state every time we come forward.
+        // The wallpaper can be applied or removed outside the app, and the engine writes back the
+        // detected page count, so re-read state every time we come forward.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) { viewModel.refresh() }
         }
@@ -101,6 +109,7 @@ class ConfigActivity : ComponentActivity() {
     }
 
     companion object {
+        /** Page to focus when opened from the widget or a tap on the wallpaper. */
         const val EXTRA_PAGE = "page"
     }
 }
