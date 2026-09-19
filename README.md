@@ -82,17 +82,32 @@ Sound from a video is muted unless you switch it on.
 ## Setting it up
 
 1. Install the APK.
-2. Open **Page Wallpaper**. Set how many home screen pages you have, then give each one a photo,
-   GIF or video.
+2. Open **Page Wallpaper**, tap **Choose photos**, and pick several at once. They land on page 1,
+   2, 3 and so on in the order you picked them.
 3. Tap **Set as wallpaper** and confirm.
 4. **Turn on wallpaper scrolling in your launcher.** On One UI: long-press the home screen →
    *Settings* → enable **Wallpaper scrolling** (older versions call it the parallax effect).
 
 Step 4 is the one that catches everybody. With that switch off, Android never tells *any* live
 wallpaper where you scrolled to, so every page shows the same thing. The app watches for this and
-says so on its front screen instead of just looking broken.
+says so instead of just looking broken.
 
 After that, you are done. Swipe and it changes.
+
+### The screen itself
+
+Every home screen page is a tile in a grid that is sized to the display, so there is nothing to
+scroll — you see all your pages and what is on each at once. **Tap a tile** to change that page,
+**long-press** to empty it. Settings live behind the icon in the corner, because you touch them
+roughly never.
+
+### How many pages you have
+
+The app works it out for you, with one catch: it can only do so **after** the wallpaper is
+running. The launcher reports how wide one page is as a fraction of the scroll range, and the page
+count falls out of that — but nothing tells an app before then, so until you have applied the
+wallpaper and swiped once, the app says it is guessing. After that it corrects itself. There is a
+manual override in settings for a launcher that reports something odd.
 
 ### Changing a page later, without hunting for the app
 
@@ -125,7 +140,8 @@ the engine starts drawing again.
 | `data/PageStore.kt` | Page assignments, in SharedPreferences |
 | `data/MediaImporter.kt` | Copies media into private storage; shrinks photos, leaves GIFs and videos untouched, saves a poster frame for videos |
 | `audio/PageAudioController.kt` | Optional per-page song (off by default) |
-| `ui/` | The Compose settings screen and the share target |
+| `ui/HomeScreen.kt` | The whole app: a non-scrolling grid of page tiles, with the pickers |
+| `ui/SettingsSheet.kt` | The knobs, behind one icon |
 | `widget/PageWidgetProvider.kt` | The widget |
 
 Everything you pick is **copied** into the app's own storage rather than linked by URI, so a page
