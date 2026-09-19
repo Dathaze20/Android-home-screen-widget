@@ -43,6 +43,11 @@ class PageMediaCache(maxEntries: Int = DEFAULT_ENTRIES) {
                 decoder.setTargetSampleSize(
                     sampleSizeFor(info.size.width, info.size.height, maxWidth, maxHeight)
                 )
+                // Without this the decoder hands back a hardware bitmap, and a hardware bitmap
+                // cannot be drawn onto the software canvas that SurfaceHolder.lockCanvas gives
+                // out: drawing one throws, which kills the wallpaper on its first frame and
+                // leaves the home screen black. Every frame here goes to a software canvas.
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 decoder.isMutableRequired = false
             }
         }.getOrElse {

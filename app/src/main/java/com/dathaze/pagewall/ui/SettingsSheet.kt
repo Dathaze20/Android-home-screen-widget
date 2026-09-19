@@ -147,12 +147,13 @@ fun SettingsSheet(
 @Composable
 private fun ScrollingWarning(onApplyWallpaper: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Turn on wallpaper scrolling", fontWeight = FontWeight.SemiBold)
+        Text("Pages not changing as you swipe?", fontWeight = FontWeight.SemiBold)
         Text(
-            "Your launcher has not reported a page scroll yet. Long-press the home screen " +
-                "→ Settings → turn on “Wallpaper scrolling”. Without it " +
-                "Android never tells any wallpaper which page you are on, so every page shows " +
-                "the same thing.",
+            "Swipe across your home screen first — the launcher only reports where it is " +
+                "once you do. If every page still looks identical, long-press the home screen " +
+                "→ Settings and turn on “Wallpaper scrolling”. Not every One UI " +
+                "version has that switch; where it is missing, scrolling is already on and the " +
+                "problem is something else.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

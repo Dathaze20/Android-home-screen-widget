@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dathaze.pagewall.data.MediaKind
@@ -180,8 +181,9 @@ private fun Header(state: ConfigUiState, assignedCount: Int, onOpenSettings: () 
 
 /** One short line that says the only thing worth saying right now. */
 private fun statusLine(state: ConfigUiState, assignedCount: Int): String = when {
+    // Not an error: the launcher only reports its scroll position once you actually swipe.
     state.wallpaperActive && !state.scrollingDetected ->
-        "Turn on Wallpaper scrolling in your launcher — tap the settings icon"
+        "Swipe across your home screen once to finish"
 
     state.wallpaperActive ->
         "Active · ${state.pageCount} pages · tap a tile to change it"
@@ -355,18 +357,27 @@ private fun PrimaryAction(
             Text(
                 text = when {
                     readyToApply -> "Set as wallpaper"
-                    state.wallpaperActive -> "Choose photos for every page"
+                    state.wallpaperActive -> "Change photos"
                     else -> "Choose photos"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                // A longer label than this was being clipped mid-word inside the button.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 
-    if (readyToApply) {
+    val hint = when {
+        readyToApply -> "Your phone will ask where to put it — choose Home screen."
+        state.wallpaperActive && !state.scrollingDetected ->
+            "Still the same on every page? Tap the settings icon."
+        else -> null
+    }
+    if (hint != null) {
         Text(
-            "You will not need to open this app again.",
+            text = hint,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

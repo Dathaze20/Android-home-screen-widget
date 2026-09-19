@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import com.dathaze.pagewall.audio.PageAudioController
@@ -98,6 +99,12 @@ class PageWallpaperService : WallpaperService() {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
             store.registerListener(this)
+            // Seed the decode target from the display so a first frame arriving before
+            // onSurfaceChanged does not decode at full resolution for nothing.
+            resources.displayMetrics.let {
+                surfaceWidth = it.widthPixels
+                surfaceHeight = it.heightPixels
+            }
             currentPage = store.currentPage.coerceIn(0, store.pageCount - 1)
         }
 
@@ -350,14 +357,20 @@ class PageWallpaperService : WallpaperService() {
             try {
                 canvas = holder.lockCanvas()
                 if (canvas != null) {
-                    renderer.draw(
-                        canvas = canvas,
-                        current = current,
-                        outgoing = outgoing,
-                        progress = progress,
-                        pan = pan,
-                        currentPageLabel = currentPage,
-                    )
+                    // Never let one unusual file kill the engine. An exception escaping here
+                    // takes the whole wallpaper service down, and the system restarts it into
+                    // the same failure, so the home screen stays black until the app is
+                    // reinstalled. A logged bad frame is always the better outcome.
+                    runCatching {
+                        renderer.draw(
+                            canvas = canvas,
+                            current = current,
+                            outgoing = outgoing,
+                            progress = progress,
+                            pan = pan,
+                            currentPageLabel = currentPage,
+                        )
+                    }.onFailure { Log.w(TAG, "Could not draw page $currentPage", it) }
                 }
             } finally {
                 if (canvas != null) runCatching { holder.unlockCanvasAndPost(canvas) }
@@ -394,6 +407,7 @@ class PageWallpaperService : WallpaperService() {
     }
 
     private companion object {
+        const val TAG = "PageWallpaper"
         const val COMMAND_TAP = "android.wallpaper.tap"
         const val FRAME_INTERVAL_MS = 16L
         const val PREVIEW_INTERVAL_MS = 2_500L
