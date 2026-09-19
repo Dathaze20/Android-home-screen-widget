@@ -39,6 +39,12 @@ data class ConfigUiState(
     val audioVolume: Float = 0.5f,
     val wallpaperActive: Boolean = false,
     val scrollingDetected: Boolean = false,
+    /** How many scroll reports the launcher has sent the wallpaper. 0 means none, ever. */
+    val offsetEventCount: Int = 0,
+    /** Last horizontal offset reported, or -1 if none. */
+    val lastOffset: Float = -1f,
+    /** Last scroll step reported, or -1 if none. 0 means "nothing to scroll". */
+    val lastOffsetStep: Float = -1f,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -83,6 +89,9 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             audioVolume = store.audioVolume,
             wallpaperActive = isWallpaperActive(),
             scrollingDetected = store.sawScrollOffsets,
+            offsetEventCount = store.offsetEventCount,
+            lastOffset = store.lastOffset,
+            lastOffsetStep = store.lastOffsetStep,
         )
     }
 

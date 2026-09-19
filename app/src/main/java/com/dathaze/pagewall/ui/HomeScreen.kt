@@ -200,6 +200,10 @@ private fun Header(state: ConfigUiState, assignedCount: Int, onOpenSettings: () 
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        // The headline beside it can squeeze this pill until "ON" wraps to
+                        // one letter per line.
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(MaterialTheme.colorScheme.primaryContainer)

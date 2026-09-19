@@ -99,6 +99,34 @@ class PageStore(context: Context) {
         get() = prefs.getBoolean(KEY_SAW_OFFSETS, false)
         set(value) = prefs.edit().putBoolean(KEY_SAW_OFFSETS, value).apply()
 
+    /**
+     * What the launcher has actually told the wallpaper, so a phone where pages never change can
+     * say why instead of leaving everyone guessing. Written by the engine, read by the settings
+     * screen.
+     */
+    var offsetEventCount: Int
+        get() = prefs.getInt(KEY_OFFSET_EVENTS, 0)
+        set(value) = prefs.edit().putInt(KEY_OFFSET_EVENTS, value).apply()
+
+    /** The most recent horizontal offset, 0f..1f across the whole scroll range. */
+    var lastOffset: Float
+        get() = prefs.getFloat(KEY_LAST_OFFSET, -1f)
+        set(value) = prefs.edit().putFloat(KEY_LAST_OFFSET, value).apply()
+
+    /** The most recent scroll step. 0 means the launcher is reporting no pages to scroll. */
+    var lastOffsetStep: Float
+        get() = prefs.getFloat(KEY_LAST_STEP, -1f)
+        set(value) = prefs.edit().putFloat(KEY_LAST_STEP, value).apply()
+
+    /** Records one batch of offset diagnostics in a single write. */
+    fun recordOffsets(count: Int, offset: Float, step: Float) {
+        prefs.edit()
+            .putInt(KEY_OFFSET_EVENTS, count)
+            .putFloat(KEY_LAST_OFFSET, offset)
+            .putFloat(KEY_LAST_STEP, step)
+            .apply()
+    }
+
     fun pages(): List<PageConfig> {
         val byIndex = readPages().associateBy { it.index }
         return (0 until pageCount).map { byIndex[it] ?: PageConfig(it) }
@@ -229,6 +257,9 @@ class PageStore(context: Context) {
         const val KEY_PAGES = "pages"
         const val KEY_PAGE_COUNT = "page_count"
         const val KEY_DETECTED_PAGES = "detected_pages"
+        const val KEY_OFFSET_EVENTS = "offset_events"
+        const val KEY_LAST_OFFSET = "last_offset"
+        const val KEY_LAST_STEP = "last_step"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
         const val KEY_MOTION = "motion"

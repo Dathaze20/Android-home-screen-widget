@@ -72,6 +72,10 @@ fun SettingsSheet(
 
             HorizontalDivider()
 
+            LauncherReport(state)
+
+            HorizontalDivider()
+
             SettingSwitch(
                 title = "Animate GIFs and videos",
                 subtitle = "Off holds each one on its first frame and uses far less battery.",
@@ -163,6 +167,53 @@ private fun ScrollingWarning(onApplyWallpaper: () -> Unit) {
         ) { Text("Re-apply wallpaper") }
     }
 }
+
+/**
+ * What the launcher is actually telling the wallpaper.
+ *
+ * Pages that never change look identical whether the launcher reports nothing, reports a single
+ * fixed position, or reports fine but something else is wrong. This says which, so the problem
+ * can be identified from the phone rather than guessed at.
+ */
+@Composable
+private fun LauncherReport(state: ConfigUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("What your launcher reports", fontWeight = FontWeight.SemiBold)
+        Text(
+            text = when {
+                !state.wallpaperActive ->
+                    "Set this as your wallpaper first, then swipe your home screen."
+
+                state.offsetEventCount == 0 ->
+                    "Nothing yet. Swipe across your home screen a few times, then reopen this. " +
+                        "If it still says nothing, your launcher never tells wallpapers where " +
+                        "it has scrolled to, and no live wallpaper on this phone can change " +
+                        "per page."
+
+                state.lastOffsetStep <= 0f ->
+                    "Reports arriving, but with no page step — the launcher is treating the " +
+                        "home screen as one single page."
+
+                else -> "Working."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Plain numbers, so a screenshot of this panel is enough to diagnose the phone.
+        Text(
+            text = "reports: ${state.offsetEventCount}  ·  " +
+                "step: ${formatOffset(state.lastOffsetStep)}  ·  " +
+                "offset: ${formatOffset(state.lastOffset)}  ·  " +
+                "pages: ${state.detectedPageCount}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** -1 is the "never reported" marker rather than a real value. */
+private fun formatOffset(value: Float): String =
+    if (value < 0f) "none" else String.format("%.3f", value)
 
 @Composable
 private fun PageCountRow(

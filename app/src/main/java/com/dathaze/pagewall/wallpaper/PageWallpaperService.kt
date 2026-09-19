@@ -52,6 +52,8 @@ class PageWallpaperService : WallpaperService() {
         private var pan = CENTER_PAN
         private var lastReportedOffset = Float.NaN
         private var previewPage = 0
+        private var offsetEvents = 0
+        private var lastDiagnosticsWrite = 0L
         private var surfaceWidth = 0
         private var surfaceHeight = 0
 
@@ -98,6 +100,11 @@ class PageWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
+            // The one call that asks the system to deliver scroll positions to this wallpaper.
+            // The documentation says notifications are on by default; in practice several
+            // launchers send nothing unless a wallpaper asks for them explicitly, which leaves
+            // every page showing the same picture.
+            setOffsetNotificationsEnabled(true)
             store.registerListener(this)
             // Seed the decode target from the display so a first frame arriving before
             // onSurfaceChanged does not decode at full resolution for nothing.
@@ -187,6 +194,16 @@ class PageWallpaperService : WallpaperService() {
             }
             lastReportedOffset = xOffset
 
+            // Offsets arrive many times per swipe, so this is throttled rather than written
+            // per event. It is what lets the settings screen show whether the launcher is
+            // reporting anything at all, and with what step.
+            offsetEvents++
+            val now = SystemClock.uptimeMillis()
+            if (now - lastDiagnosticsWrite > DIAGNOSTICS_INTERVAL_MS) {
+                lastDiagnosticsWrite = now
+                store.recordOffsets(offsetEvents, xOffset, xOffsetStep)
+            }
+
             pan = if (store.parallaxEnabled) xOffset.coerceIn(0f, 1f) else CENTER_PAN
 
             // One page occupies xOffsetStep of the scroll range, so the launcher's page count
@@ -235,7 +252,10 @@ class PageWallpaperService : WallpaperService() {
                 // Written by this engine; reacting to it would loop.
                 PageStore.KEY_CURRENT_PAGE,
                 PageStore.KEY_SAW_OFFSETS,
-                PageStore.KEY_DETECTED_PAGES -> return
+                PageStore.KEY_DETECTED_PAGES,
+                PageStore.KEY_OFFSET_EVENTS,
+                PageStore.KEY_LAST_OFFSET,
+                PageStore.KEY_LAST_STEP -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     cache.clear()
@@ -266,8 +286,12 @@ class PageWallpaperService : WallpaperService() {
             currentPage = page
             fadeStartedAt = if (outgoing != null) SystemClock.uptimeMillis() else 0L
 
-            store.currentPage = page
-            PageWidgetProvider.notifyPageChanged(this@PageWallpaperService, page)
+            // The picker's preview cycles pages to show the setup off. Persisting that would
+            // leave the real wallpaper starting on whatever page the preview happened to stop on.
+            if (!isPreview) {
+                store.currentPage = page
+                PageWidgetProvider.notifyPageChanged(this@PageWallpaperService, page)
+            }
 
             if (playAudio) playAudioForCurrentPage() else audio.stop()
             render()
@@ -412,6 +436,7 @@ class PageWallpaperService : WallpaperService() {
         const val FRAME_INTERVAL_MS = 16L
         const val PREVIEW_INTERVAL_MS = 2_500L
         const val OFFSET_EPSILON = 0.001f
+        const val DIAGNOSTICS_INTERVAL_MS = 400L
         const val CENTER_PAN = 0.5f
     }
 }
