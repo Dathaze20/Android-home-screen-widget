@@ -10,3 +10,6 @@ captures/
 *.apk
 *.aab
 *.keystore
+# Except the fixed debug key: without it in the repo every CI build is signed with
+# a different generated key, so the APK will not install over the previous one.
+!app/debug.keystore
