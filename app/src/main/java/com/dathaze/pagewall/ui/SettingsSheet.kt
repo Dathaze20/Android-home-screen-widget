@@ -88,6 +88,7 @@ fun SettingsSheet(
                 onCaptureRightEdge = onCaptureRightEdge,
                 onClearCalibration = onClearCalibration,
                 onResetDiagnostics = onResetDiagnostics,
+                onTouchCompatibilityChange = onTouchCompatibilityChange,
             )
 
             HorizontalDivider()
@@ -203,7 +204,6 @@ private fun LauncherReport(
     onCaptureRightEdge: () -> Unit,
     onClearCalibration: () -> Unit,
     onResetDiagnostics: () -> Unit,
-    onPhotoFitChange: (PhotoFit) -> Unit,
     onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
 ) {
     val span = state.observedMaxOffset - state.observedMinOffset
