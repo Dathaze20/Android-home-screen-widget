@@ -10,10 +10,14 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.service.wallpaper.WallpaperService
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import com.dathaze.pagewall.audio.PageAudioController
 import com.dathaze.pagewall.data.MediaKind
+import com.dathaze.pagewall.data.DetectionMode
 import com.dathaze.pagewall.data.PageMath
+import com.dathaze.pagewall.data.SwipeDirection
+import com.dathaze.pagewall.data.SwipeMath
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.widget.PageWidgetProvider
 import java.io.File
@@ -56,6 +60,14 @@ class PageWallpaperService : WallpaperService() {
         private var lastDiagnosticsWrite = 0L
         private var minOffsetSeen = -1f
         private var maxOffsetSeen = -1f
+
+        // Touch fallback, for launchers whose offset never moves.
+        private var touchEvents = 0
+        private var touchDownX = 0f
+        private var touchDownY = 0f
+        private var touchDownAt = 0L
+        private var lastSwipeAt = 0L
+        private var lastTouchDiagnosticsWrite = 0L
         private var surfaceWidth = 0
         private var surfaceHeight = 0
 
@@ -122,6 +134,7 @@ class PageWallpaperService : WallpaperService() {
             handler.removeCallbacksAndMessages(null)
             store.unregisterListener(this)
             stopAnimation()
+            renderer.clearCaches()
             video.stop()
             audio.stop()
             cache.clear()
@@ -240,12 +253,89 @@ class PageWallpaperService : WallpaperService() {
                 )
             }
 
+            if (currentDetectionMode() != DetectionMode.OFFSET) {
+                // Touch is driving the page; following the offset too would fight it.
+                store.activeDetectionMode = DetectionMode.TOUCH.name
+                return
+            }
+            store.activeDetectionMode = DetectionMode.OFFSET.name
+
             if (page != currentPage) {
                 switchToPage(page, animate = true, playAudio = true)
             } else if (store.parallaxEnabled && !videoMode) {
                 // Redraw during the swipe so the picture drifts with your finger.
                 requestFrame(0L)
             }
+        }
+
+        /**
+         * Raw touch events, enabled in [onCreate] via setTouchEventsEnabled.
+         *
+         * This is the fallback for One UI and any other launcher that reports a fixed wallpaper
+         * offset: the page cannot be read from the offset, so the horizontal flick that changed
+         * the page is used to step it directly. Offsets stay the preferred method — this only
+         * runs when [SwipeMath.detectionMode] says the offsets are not moving.
+         *
+         * Nothing is consumed here. A wallpaper only observes these events; the launcher has
+         * already handled the gesture by the time it forwards them.
+         */
+        override fun onTouchEvent(event: MotionEvent) {
+            super.onTouchEvent(event)
+            if (isPreview) return
+
+            touchEvents++
+            val mode = currentDetectionMode()
+            if (mode != DetectionMode.TOUCH) {
+                recordTouchDiagnostics(mode)
+                return
+            }
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchDownX = event.x
+                    touchDownY = event.y
+                    touchDownAt = SystemClock.uptimeMillis()
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    val now = SystemClock.uptimeMillis()
+                    // One gesture must not be able to step two pages.
+                    if (now - lastSwipeAt < SwipeMath.COOLDOWN_MS) return
+                    if (touchDownAt == 0L) return
+
+                    val direction = SwipeMath.detect(
+                        dx = event.x - touchDownX,
+                        dy = event.y - touchDownY,
+                        durationMs = now - touchDownAt,
+                        screenWidth = surfaceWidth,
+                    )
+                    touchDownAt = 0L
+                    if (direction == SwipeDirection.NONE) return
+
+                    lastSwipeAt = now
+                    val page = SwipeMath.nextPage(currentPage, direction, store.pageCount)
+                    store.recordTouch(touchEvents, direction.name, mode)
+                    if (page != currentPage) {
+                        switchToPage(page, animate = true, playAudio = true)
+                    }
+                }
+
+                MotionEvent.ACTION_CANCEL -> touchDownAt = 0L
+            }
+        }
+
+        /** Offsets when they move, touch when they do not, or whatever the user forced. */
+        private fun currentDetectionMode(): DetectionMode = SwipeMath.detectionMode(
+            setting = store.touchCompatibility,
+            observedMinOffset = minOffsetSeen,
+            observedMaxOffset = maxOffsetSeen,
+        )
+
+        private fun recordTouchDiagnostics(mode: DetectionMode) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastTouchDiagnosticsWrite <= DIAGNOSTICS_INTERVAL_MS) return
+            lastTouchDiagnosticsWrite = now
+            store.recordTouch(touchEvents, store.lastSwipe, mode)
         }
 
         override fun onCommand(
@@ -279,6 +369,7 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     cache.clear()
+                    renderer.clearCaches()
                     // The media on this page may have been replaced under the player's feet.
                     video.stop()
                     videoMode = false
@@ -299,6 +390,7 @@ class PageWallpaperService : WallpaperService() {
                         )
                     }
                 }
+                PageStore.KEY_PHOTO_FIT -> renderer.clearCaches()
                 PageStore.KEY_MOTION, PageStore.KEY_VIDEO_SOUND -> {
                     video.stop()
                     videoMode = false
@@ -428,6 +520,7 @@ class PageWallpaperService : WallpaperService() {
                             progress = progress,
                             pan = pan,
                             currentPageLabel = currentPage,
+                            fit = store.photoFit,
                         )
                     }.onFailure { Log.w(TAG, "Could not draw page $currentPage", it) }
                 }

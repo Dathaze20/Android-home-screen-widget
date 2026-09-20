@@ -12,7 +12,10 @@ import androidx.lifecycle.viewModelScope
 import com.dathaze.pagewall.data.ImportResult
 import com.dathaze.pagewall.data.MediaImporter
 import com.dathaze.pagewall.data.MediaKind
+import com.dathaze.pagewall.data.DetectionMode
 import com.dathaze.pagewall.data.PageAssignment
+import com.dathaze.pagewall.data.PhotoFit
+import com.dathaze.pagewall.data.TouchCompatibility
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
@@ -53,6 +56,12 @@ data class ConfigUiState(
     val calibrationMin: Float = -1f,
     val calibrationMax: Float = -1f,
     val isCalibrated: Boolean = false,
+    /** Offset when the launcher moves it, touch when it does not. */
+    val detectionMode: String = DetectionMode.OFFSET.name,
+    val touchCompatibility: TouchCompatibility = TouchCompatibility.AUTO,
+    val touchEventCount: Int = 0,
+    val lastSwipe: String = "",
+    val photoFit: PhotoFit = PhotoFit.FULL_IMAGE,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -106,6 +115,11 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             calibrationMin = store.calibrationMin,
             calibrationMax = store.calibrationMax,
             isCalibrated = store.isCalibrated,
+            detectionMode = store.activeDetectionMode,
+            touchCompatibility = store.touchCompatibility,
+            touchEventCount = store.touchEventCount,
+            lastSwipe = store.lastSwipe,
+            photoFit = store.photoFit,
         )
     }
 
@@ -250,6 +264,16 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setParallax(enabled: Boolean) {
         store.parallaxEnabled = enabled
+        afterChange()
+    }
+
+    fun setPhotoFit(fit: PhotoFit) {
+        store.photoFit = fit
+        afterChange()
+    }
+
+    fun setTouchCompatibility(mode: TouchCompatibility) {
+        store.touchCompatibility = mode
         afterChange()
     }
 

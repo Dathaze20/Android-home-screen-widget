@@ -86,6 +86,8 @@ class ConfigActivity : ComponentActivity() {
                         onCaptureRightEdge = viewModel::captureRightEdge,
                         onClearCalibration = viewModel::clearCalibration,
                         onResetDiagnostics = viewModel::resetDiagnostics,
+                        onPhotoFitChange = viewModel::setPhotoFit,
+                        onTouchCompatibilityChange = viewModel::setTouchCompatibility,
                     )
                 }
             }

@@ -157,6 +157,44 @@ class PageStore(context: Context) {
         get() = prefs.getInt(KEY_COMPUTED_PAGE, -1)
         set(value) = prefs.edit().putInt(KEY_COMPUTED_PAGE, value).apply()
 
+    /** How pictures are laid out when their shape does not match the screen. */
+    var photoFit: PhotoFit
+        get() = runCatching {
+            PhotoFit.valueOf(prefs.getString(KEY_PHOTO_FIT, PhotoFit.FULL_IMAGE.name)!!)
+        }.getOrDefault(PhotoFit.FULL_IMAGE)
+        set(value) = prefs.edit().putString(KEY_PHOTO_FIT, value.name).apply()
+
+    /** Whether the touch fallback is off, forced on, or left to decide for itself. */
+    var touchCompatibility: TouchCompatibility
+        get() = runCatching {
+            TouchCompatibility.valueOf(prefs.getString(KEY_TOUCH_MODE, TouchCompatibility.AUTO.name)!!)
+        }.getOrDefault(TouchCompatibility.AUTO)
+        set(value) = prefs.edit().putString(KEY_TOUCH_MODE, value.name).apply()
+
+    /** How many raw touch events the launcher has forwarded to the wallpaper. */
+    var touchEventCount: Int
+        get() = prefs.getInt(KEY_TOUCH_EVENTS, 0)
+        set(value) = prefs.edit().putInt(KEY_TOUCH_EVENTS, value).apply()
+
+    /** The last gesture recognised as a page swipe, for the diagnostics panel. */
+    var lastSwipe: String
+        get() = prefs.getString(KEY_LAST_SWIPE, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_LAST_SWIPE, value).apply()
+
+    /** Which method the engine is currently using to follow the pages. */
+    var activeDetectionMode: String
+        get() = prefs.getString(KEY_DETECTION_MODE, DetectionMode.OFFSET.name) ?: DetectionMode.OFFSET.name
+        set(value) = prefs.edit().putString(KEY_DETECTION_MODE, value).apply()
+
+    /** Records the touch fallback's diagnostics in a single write. */
+    fun recordTouch(count: Int, swipe: String, mode: DetectionMode) {
+        prefs.edit()
+            .putInt(KEY_TOUCH_EVENTS, count)
+            .putString(KEY_LAST_SWIPE, swipe)
+            .putString(KEY_DETECTION_MODE, mode.name)
+            .apply()
+    }
+
     /** Records one batch of offset diagnostics in a single write. */
     fun recordOffsets(
         count: Int,
@@ -186,6 +224,9 @@ class PageStore(context: Context) {
             .remove(KEY_MAX_SEEN)
             .remove(KEY_COMPUTED_PAGE)
             .remove(KEY_SAW_OFFSETS)
+            .remove(KEY_TOUCH_EVENTS)
+            .remove(KEY_LAST_SWIPE)
+            .remove(KEY_DETECTION_MODE)
             .apply()
     }
 
@@ -327,6 +368,11 @@ class PageStore(context: Context) {
         const val KEY_CALIBRATION_MIN = "calibration_min"
         const val KEY_CALIBRATION_MAX = "calibration_max"
         const val KEY_COMPUTED_PAGE = "computed_page"
+        const val KEY_PHOTO_FIT = "photo_fit"
+        const val KEY_TOUCH_MODE = "touch_mode"
+        const val KEY_TOUCH_EVENTS = "touch_events"
+        const val KEY_LAST_SWIPE = "last_swipe"
+        const val KEY_DETECTION_MODE = "detection_mode"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
         const val KEY_MOTION = "motion"

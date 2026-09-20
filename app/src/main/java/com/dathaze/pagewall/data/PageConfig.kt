@@ -64,3 +64,12 @@ data class PageAssignment(
     val kind: MediaKind,
     val posterFile: String?,
 )
+
+/** How a picture is laid out on a screen whose shape does not match it. */
+enum class PhotoFit {
+    /** The whole picture, uncropped, over a blurred copy of itself. */
+    FULL_IMAGE,
+
+    /** Scaled up until it covers every corner, cropping whatever does not fit. */
+    FILL_SCREEN,
+}

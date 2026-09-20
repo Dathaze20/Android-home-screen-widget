@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -24,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dathaze.pagewall.data.PageStore
+import com.dathaze.pagewall.data.PhotoFit
+import com.dathaze.pagewall.data.TouchCompatibility
 
 /**
  * Everything that is not "pick a photo", tucked behind one icon.
@@ -50,6 +53,8 @@ fun SettingsSheet(
     onCaptureRightEdge: () -> Unit,
     onClearCalibration: () -> Unit,
     onResetDiagnostics: () -> Unit,
+    onPhotoFitChange: (PhotoFit) -> Unit,
+    onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -84,6 +89,10 @@ fun SettingsSheet(
                 onClearCalibration = onClearCalibration,
                 onResetDiagnostics = onResetDiagnostics,
             )
+
+            HorizontalDivider()
+
+            PhotoFitRow(state, onPhotoFitChange)
 
             HorizontalDivider()
 
@@ -194,6 +203,8 @@ private fun LauncherReport(
     onCaptureRightEdge: () -> Unit,
     onClearCalibration: () -> Unit,
     onResetDiagnostics: () -> Unit,
+    onPhotoFitChange: (PhotoFit) -> Unit,
+    onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
 ) {
     val span = state.observedMaxOffset - state.observedMinOffset
     val movesAtAll = state.observedMinOffset >= 0f && span > 0.001f
@@ -234,10 +245,15 @@ private fun LauncherReport(
                 "current page: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "—"}\n" +
                 "picture shown: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "—"}\n" +
                 "reports: ${state.offsetEventCount}\n" +
+                "detection mode: ${if (state.detectionMode == "TOUCH") "Samsung compatibility" else "Offset"}\n" +
+                "touch reports: ${state.touchEventCount}\n" +
+                "last swipe: ${state.lastSwipe.ifEmpty { "\u2014" }}\n" +
                 "calibration: ${if (state.isCalibrated) "${fmt(state.calibrationMin)} → ${fmt(state.calibrationMax)}" else "off"}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        TouchModeRow(state, onTouchCompatibilityChange)
 
         Text(
             "Calibration: stand on your leftmost home screen, open this and tap Set left edge. " +
@@ -263,6 +279,82 @@ private fun LauncherReport(
 /** -1 is the "never reported" marker rather than a real value. */
 private fun fmt(value: Float): String =
     if (value < 0f) "none" else String.format("%.3f", value)
+
+/**
+ * How a picture is laid out when its shape does not match the screen's.
+ *
+ * A landscape picture on a tall phone cannot be complete, uncropped, undistorted and reach all
+ * four corners at once — the shapes differ, so one of those has to give.
+ */
+@Composable
+private fun PhotoFitRow(state: ConfigUiState, onPhotoFitChange: (PhotoFit) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Photo fit", fontWeight = FontWeight.SemiBold)
+        Text(
+            text = if (state.photoFit == PhotoFit.FULL_IMAGE) {
+                "The whole picture, nothing cropped, over a blurred copy of itself."
+            } else {
+                "Zoomed until it covers the screen. The edges of a wide picture are cut off."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = state.photoFit == PhotoFit.FULL_IMAGE,
+                onClick = { onPhotoFitChange(PhotoFit.FULL_IMAGE) },
+                label = { Text("Full image") },
+            )
+            FilterChip(
+                selected = state.photoFit == PhotoFit.FILL_SCREEN,
+                onClick = { onPhotoFitChange(PhotoFit.FILL_SCREEN) },
+                label = { Text("Fill screen") },
+            )
+        }
+    }
+}
+
+/**
+ * Which method follows the pages.
+ *
+ * One UI reports a fixed wallpaper offset, so there is nothing in it to read a page from. The
+ * fallback watches the swipe itself instead and steps the page by hand.
+ */
+@Composable
+private fun TouchModeRow(
+    state: ConfigUiState,
+    onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Samsung compatibility", fontWeight = FontWeight.SemiBold)
+        Text(
+            "On a launcher that never moves the wallpaper offset, the pages are followed by " +
+                "watching your swipe instead. Auto turns it on by itself when the offset stays " +
+                "put. It only works if your launcher passes touches to the wallpaper \u2014 the " +
+                "touch reports line above says whether yours does.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TouchCompatibility.entries.forEach { option ->
+                FilterChip(
+                    selected = state.touchCompatibility == option,
+                    onClick = { onTouchCompatibilityChange(option) },
+                    label = {
+                        Text(
+                            when (option) {
+                                TouchCompatibility.AUTO -> "Auto"
+                                TouchCompatibility.ON -> "Always on"
+                                TouchCompatibility.OFF -> "Off"
+                            },
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun PageCountRow(
