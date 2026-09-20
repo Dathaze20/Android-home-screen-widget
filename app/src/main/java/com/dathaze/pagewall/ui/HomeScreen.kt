@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
@@ -365,11 +366,47 @@ private fun PageTile(
                 contentDescription = page.kindLabel,
                 tint = Color.White,
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomStart)
                     .padding(8.dp)
-                    .size(20.dp),
+                    .size(18.dp),
             )
         }
+
+        // A tick on every filled page, so it is obvious at a glance which home screens are done
+        // and which are still waiting for a picture.
+        if (page.hasMedia) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .size(20.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "Set",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+
+        // The page this tile stands for, spelled out rather than left to a numbered badge.
+        Text(
+            text = if (page.hasMedia) "Screen ${page.index + 1}" else "Add to screen ${page.index + 1}",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(vertical = 3.dp, horizontal = 4.dp),
+        )
     }
 }
 

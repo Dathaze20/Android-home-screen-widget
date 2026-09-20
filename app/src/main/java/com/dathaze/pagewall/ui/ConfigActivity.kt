@@ -82,6 +82,10 @@ class ConfigActivity : ComponentActivity() {
                         onAudioLoopChange = viewModel::setAudioLooping,
                         onAudioVolumeChange = viewModel::setAudioVolume,
                         onApplyWallpaper = ::applyWallpaper,
+                        onCaptureLeftEdge = viewModel::captureLeftEdge,
+                        onCaptureRightEdge = viewModel::captureRightEdge,
+                        onClearCalibration = viewModel::clearCalibration,
+                        onResetDiagnostics = viewModel::resetDiagnostics,
                     )
                 }
             }

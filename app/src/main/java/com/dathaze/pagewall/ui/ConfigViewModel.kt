@@ -45,6 +45,14 @@ data class ConfigUiState(
     val lastOffset: Float = -1f,
     /** Last scroll step reported, or -1 if none. 0 means "nothing to scroll". */
     val lastOffsetStep: Float = -1f,
+    /** Narrowest and widest offsets ever reported. Equal means the launcher never moves. */
+    val observedMinOffset: Float = -1f,
+    val observedMaxOffset: Float = -1f,
+    /** The page the engine last worked out from an offset, or -1 before any arrived. */
+    val computedPage: Int = -1,
+    val calibrationMin: Float = -1f,
+    val calibrationMax: Float = -1f,
+    val isCalibrated: Boolean = false,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -92,6 +100,12 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             offsetEventCount = store.offsetEventCount,
             lastOffset = store.lastOffset,
             lastOffsetStep = store.lastOffsetStep,
+            observedMinOffset = store.observedMinOffset,
+            observedMaxOffset = store.observedMaxOffset,
+            computedPage = store.lastComputedPage,
+            calibrationMin = store.calibrationMin,
+            calibrationMax = store.calibrationMax,
+            isCalibrated = store.isCalibrated,
         )
     }
 
@@ -265,6 +279,48 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun thumbnailFor(page: PageConfig): File? = store.fileFor(page.thumbnailFile)
+
+    /**
+     * Records the offset the launcher is reporting right now as one edge of the real scroll
+     * range, for launchers that only sweep part of 0..1.
+     *
+     * The user stands on the leftmost or rightmost home screen, opens this app, and taps. The
+     * engine wrote the last offset it saw, so that is the value captured.
+     */
+    fun captureLeftEdge() {
+        val offset = store.lastOffset
+        if (offset < 0f) {
+            uiState = uiState.copy(errorMessage = "No scroll reported yet \u2014 swipe first.")
+            return
+        }
+        store.calibrationMin = offset
+        uiState = uiState.copy(noticeMessage = "Left edge set to ${"%.3f".format(offset)}")
+        afterChange()
+    }
+
+    fun captureRightEdge() {
+        val offset = store.lastOffset
+        if (offset < 0f) {
+            uiState = uiState.copy(errorMessage = "No scroll reported yet \u2014 swipe first.")
+            return
+        }
+        store.calibrationMax = offset
+        uiState = uiState.copy(noticeMessage = "Right edge set to ${"%.3f".format(offset)}")
+        afterChange()
+    }
+
+    fun clearCalibration() {
+        store.clearCalibration()
+        uiState = uiState.copy(noticeMessage = "Calibration cleared")
+        afterChange()
+    }
+
+    /** Wipes the recorded launcher behaviour so a fresh test starts from zero. */
+    fun resetDiagnostics() {
+        store.resetDiagnostics()
+        uiState = uiState.copy(noticeMessage = "Diagnostics reset \u2014 swipe your home screen")
+        afterChange()
+    }
 
     private fun afterChange() {
         refresh()

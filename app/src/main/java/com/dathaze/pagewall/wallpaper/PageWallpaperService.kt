@@ -13,11 +13,11 @@ import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import com.dathaze.pagewall.audio.PageAudioController
 import com.dathaze.pagewall.data.MediaKind
+import com.dathaze.pagewall.data.PageMath
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.widget.PageWidgetProvider
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * The live wallpaper that swaps what you see as you swipe between home screen pages.
@@ -54,6 +54,8 @@ class PageWallpaperService : WallpaperService() {
         private var previewPage = 0
         private var offsetEvents = 0
         private var lastDiagnosticsWrite = 0L
+        private var minOffsetSeen = -1f
+        private var maxOffsetSeen = -1f
         private var surfaceWidth = 0
         private var surfaceHeight = 0
 
@@ -194,34 +196,49 @@ class PageWallpaperService : WallpaperService() {
             }
             lastReportedOffset = xOffset
 
-            // Offsets arrive many times per swipe, so this is throttled rather than written
-            // per event. It is what lets the settings screen show whether the launcher is
-            // reporting anything at all, and with what step.
-            offsetEvents++
-            val now = SystemClock.uptimeMillis()
-            if (now - lastDiagnosticsWrite > DIAGNOSTICS_INTERVAL_MS) {
-                lastDiagnosticsWrite = now
-                store.recordOffsets(offsetEvents, xOffset, xOffsetStep)
+            if (xOffset.isFinite()) {
+                minOffsetSeen = if (minOffsetSeen < 0f) xOffset else minOf(minOffsetSeen, xOffset)
+                maxOffsetSeen = if (maxOffsetSeen < 0f) xOffset else maxOf(maxOffsetSeen, xOffset)
             }
 
-            pan = if (store.parallaxEnabled) xOffset.coerceIn(0f, 1f) else CENTER_PAN
+            pan = if (store.parallaxEnabled) {
+                PageMath.normalize(xOffset, store.calibrationMin, store.calibrationMax)
+            } else {
+                CENTER_PAN
+            }
 
-            // One page occupies xOffsetStep of the scroll range, so the launcher's page count
-            // falls out of it. This is the only moment any app is told how many home screens
-            // exist, which is why the count cannot be known before the wallpaper is applied.
-            if (xOffsetStep > 0f && xOffsetStep.isFinite()) {
-                val launcherPages = ((1f / xOffsetStep).roundToInt() + 1)
-                    .coerceIn(PageStore.MIN_PAGES, PageStore.MAX_PAGES)
+            // Only a hint, and only from launchers that report a usable step. The page below is
+            // worked out from the user's page count either way, because a launcher reporting no
+            // step used to leave the page frozen and every home screen showing one picture.
+            PageMath.launcherPageCount(xOffsetStep, PageStore.MAX_PAGES)?.let { launcherPages ->
                 if (launcherPages != store.detectedPageCount) {
                     store.detectedPageCount = launcherPages
                 }
             }
 
-            val page = if (xOffsetStep > 0f && xOffsetStep.isFinite()) {
-                (xOffset / xOffsetStep).roundToInt()
-            } else {
-                currentPage
-            }.coerceIn(0, store.pageCount - 1)
+            val page = PageMath.pageFor(
+                xOffset = xOffset,
+                pageCount = store.pageCount,
+                calibrationMin = store.calibrationMin,
+                calibrationMax = store.calibrationMax,
+            )
+
+            // Offsets arrive many times per swipe, so this is throttled rather than written per
+            // event. It is what lets the settings screen say whether the launcher reports
+            // anything, over what range, and which page that works out to.
+            offsetEvents++
+            val now = SystemClock.uptimeMillis()
+            if (now - lastDiagnosticsWrite > DIAGNOSTICS_INTERVAL_MS) {
+                lastDiagnosticsWrite = now
+                store.recordOffsets(
+                    count = offsetEvents,
+                    offset = xOffset,
+                    step = xOffsetStep,
+                    minSeen = minOffsetSeen,
+                    maxSeen = maxOffsetSeen,
+                    computedPage = page,
+                )
+            }
 
             if (page != currentPage) {
                 switchToPage(page, animate = true, playAudio = true)
@@ -255,7 +272,10 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_DETECTED_PAGES,
                 PageStore.KEY_OFFSET_EVENTS,
                 PageStore.KEY_LAST_OFFSET,
-                PageStore.KEY_LAST_STEP -> return
+                PageStore.KEY_LAST_STEP,
+                PageStore.KEY_MIN_SEEN,
+                PageStore.KEY_MAX_SEEN,
+                PageStore.KEY_COMPUTED_PAGE -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     cache.clear()
@@ -263,7 +283,22 @@ class PageWallpaperService : WallpaperService() {
                     video.stop()
                     videoMode = false
                 }
-                PageStore.KEY_PAGE_COUNT -> currentPage = currentPage.coerceIn(0, store.pageCount - 1)
+                PageStore.KEY_PAGE_COUNT,
+                PageStore.KEY_CALIBRATION_MIN,
+                PageStore.KEY_CALIBRATION_MAX -> {
+                    // A changed page count or calibration remaps the offset we are sitting on,
+                    // so recompute from the last reported offset instead of waiting for a swipe.
+                    currentPage = if (lastReportedOffset.isNaN()) {
+                        currentPage.coerceIn(0, store.pageCount - 1)
+                    } else {
+                        PageMath.pageFor(
+                            xOffset = lastReportedOffset,
+                            pageCount = store.pageCount,
+                            calibrationMin = store.calibrationMin,
+                            calibrationMax = store.calibrationMax,
+                        )
+                    }
+                }
                 PageStore.KEY_MOTION, PageStore.KEY_VIDEO_SOUND -> {
                     video.stop()
                     videoMode = false

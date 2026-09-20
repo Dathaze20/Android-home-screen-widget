@@ -18,6 +18,19 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Checked in on purpose. Without a fixed key every CI build is signed with a freshly
+            // generated one, Android refuses to install it over the previous build, and the only
+            // way to update is to uninstall first — which wipes every saved page assignment.
+            // This is a debug key with the standard debug password: it is not a release secret.
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -53,4 +66,5 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     debugImplementation(libs.androidx.ui.tooling)
+    testImplementation(libs.junit)
 }

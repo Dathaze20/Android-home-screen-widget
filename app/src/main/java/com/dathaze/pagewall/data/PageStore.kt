@@ -118,12 +118,74 @@ class PageStore(context: Context) {
         get() = prefs.getFloat(KEY_LAST_STEP, -1f)
         set(value) = prefs.edit().putFloat(KEY_LAST_STEP, value).apply()
 
+    /**
+     * The narrowest and widest offsets ever seen. Decisive: if these are equal, the launcher is
+     * reporting a fixed position and no arithmetic can recover a page from it.
+     */
+    var observedMinOffset: Float
+        get() = prefs.getFloat(KEY_MIN_SEEN, -1f)
+        set(value) = prefs.edit().putFloat(KEY_MIN_SEEN, value).apply()
+
+    var observedMaxOffset: Float
+        get() = prefs.getFloat(KEY_MAX_SEEN, -1f)
+        set(value) = prefs.edit().putFloat(KEY_MAX_SEEN, value).apply()
+
+    /** Offset captured on the leftmost page, or -1 when not calibrated. */
+    var calibrationMin: Float
+        get() = prefs.getFloat(KEY_CALIBRATION_MIN, -1f)
+        set(value) = prefs.edit().putFloat(KEY_CALIBRATION_MIN, value).apply()
+
+    /** Offset captured on the rightmost page, or -1 when not calibrated. */
+    var calibrationMax: Float
+        get() = prefs.getFloat(KEY_CALIBRATION_MAX, -1f)
+        set(value) = prefs.edit().putFloat(KEY_CALIBRATION_MAX, value).apply()
+
+    val isCalibrated: Boolean
+        get() = calibrationMin >= 0f &&
+            calibrationMax >= 0f &&
+            kotlin.math.abs(calibrationMax - calibrationMin) >= PageMath.MIN_CALIBRATION_SPAN
+
+    fun clearCalibration() {
+        prefs.edit()
+            .remove(KEY_CALIBRATION_MIN)
+            .remove(KEY_CALIBRATION_MAX)
+            .apply()
+    }
+
+    /** The page the engine last worked out, for the diagnostics panel. */
+    var lastComputedPage: Int
+        get() = prefs.getInt(KEY_COMPUTED_PAGE, -1)
+        set(value) = prefs.edit().putInt(KEY_COMPUTED_PAGE, value).apply()
+
     /** Records one batch of offset diagnostics in a single write. */
-    fun recordOffsets(count: Int, offset: Float, step: Float) {
+    fun recordOffsets(
+        count: Int,
+        offset: Float,
+        step: Float,
+        minSeen: Float,
+        maxSeen: Float,
+        computedPage: Int,
+    ) {
         prefs.edit()
             .putInt(KEY_OFFSET_EVENTS, count)
             .putFloat(KEY_LAST_OFFSET, offset)
             .putFloat(KEY_LAST_STEP, step)
+            .putFloat(KEY_MIN_SEEN, minSeen)
+            .putFloat(KEY_MAX_SEEN, maxSeen)
+            .putInt(KEY_COMPUTED_PAGE, computedPage)
+            .apply()
+    }
+
+    /** Wipes the recorded launcher behaviour so a fresh test starts from nothing. */
+    fun resetDiagnostics() {
+        prefs.edit()
+            .remove(KEY_OFFSET_EVENTS)
+            .remove(KEY_LAST_OFFSET)
+            .remove(KEY_LAST_STEP)
+            .remove(KEY_MIN_SEEN)
+            .remove(KEY_MAX_SEEN)
+            .remove(KEY_COMPUTED_PAGE)
+            .remove(KEY_SAW_OFFSETS)
             .apply()
     }
 
@@ -260,6 +322,11 @@ class PageStore(context: Context) {
         const val KEY_OFFSET_EVENTS = "offset_events"
         const val KEY_LAST_OFFSET = "last_offset"
         const val KEY_LAST_STEP = "last_step"
+        const val KEY_MIN_SEEN = "min_seen"
+        const val KEY_MAX_SEEN = "max_seen"
+        const val KEY_CALIBRATION_MIN = "calibration_min"
+        const val KEY_CALIBRATION_MAX = "calibration_max"
+        const val KEY_COMPUTED_PAGE = "computed_page"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
         const val KEY_MOTION = "motion"
