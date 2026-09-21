@@ -419,13 +419,6 @@ class PageWallpaperService : WallpaperService() {
             observedMaxOffset = maxOffsetSeen,
         )
 
-        private fun recordTouchDiagnostics(mode: DetectionMode) {
-            val now = SystemClock.uptimeMillis()
-            if (now - lastTouchDiagnosticsWrite <= DIAGNOSTICS_INTERVAL_MS) return
-            lastTouchDiagnosticsWrite = now
-            store.recordTouch(touchEvents, store.lastSwipe, mode)
-        }
-
         override fun onCommand(
             action: String?,
             x: Int,
