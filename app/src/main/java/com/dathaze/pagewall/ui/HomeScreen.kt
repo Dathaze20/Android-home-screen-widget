@@ -5,11 +5,16 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,22 +24,26 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gif
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,15 +59,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
@@ -67,13 +81,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.ceil
 
+/** Transitions stay in this range: present enough to read, short enough not to feel slow. */
+private const val TRANSITION_MS = 200
+
 /**
- * The whole app, on one screen.
+ * The control centre: every home screen page as a panel, and one primary action.
  *
- * Every page is a tile in a grid that is sized to fit the display exactly, so there is nothing to
- * scroll: you see all your home screens at once, with what is on each. Tap a tile to change that
- * page, long-press to empty it, or use the button at the bottom to fill every page at once.
- * Settings live behind the icon in the corner, because you touch them roughly never.
+ * Sized to the display rather than scrolled, so the whole set is visible at once. The grid drops
+ * to two columns up to six screens so the pictures stay large, and only goes to three beyond that
+ * — the alternative was uniformly tiny thumbnails.
  */
 @Composable
 fun HomeScreen(
@@ -84,13 +100,15 @@ fun HomeScreen(
     onAssignMedia: (Int, Uri) -> Unit,
     onFillPages: (List<Uri>) -> Unit,
     onClearPage: (Int) -> Unit,
+    onOpenPageDetails: (Int) -> Unit,
     onApplyWallpaper: () -> Unit,
     onOpenSettings: () -> Unit,
     onDismissError: () -> Unit,
     thumbnailFor: (PageConfig) -> File?,
 ) {
-    // Which tile a single-page picker was opened for; the result callback has no other way to know.
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
+    var confirmClearPage by remember { mutableStateOf<Int?>(null) }
+    val haptics = LocalHapticFeedback.current
 
     val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
 
@@ -98,32 +116,10 @@ fun HomeScreen(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { onAssignMedia(pendingPage, it) } }
 
-    // Filling every page in one go is the fast path: pick several, they land in order.
-    // The limit is a constant rather than the page count: this launcher is registered once, on
-    // first composition, so a count read here would be frozen at whatever it was back then.
     val multiPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(PageStore.MAX_PAGES)
     ) { uris -> if (uris.isNotEmpty()) onFillPages(uris) }
 
-    // Some pickers hand back a single photo however many were tapped, which leaves most pages
-    // empty. This walks the empty pages one at a time instead, and Back ends it.
-    var chainQueue by remember { mutableStateOf<List<Int>>(emptyList()) }
-    val chainPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        val page = chainQueue.firstOrNull()
-        chainQueue = if (uri == null) emptyList() else chainQueue.drop(1)
-        if (uri != null && page != null) onAssignMedia(page, uri)
-    }
-    LaunchedEffect(chainQueue) {
-        chainQueue.firstOrNull()?.let { chainPicker.launch(request) }
-    }
-
-    val assignedCount = state.pages.count { it.hasMedia }
-    val emptyPages = state.pages.filterNot { it.hasMedia }.map { it.index }
-
-    // Arriving from the widget means "change this page", so skip the screen and open the picker.
-    // Guarded by a saved flag so a rotation does not reopen it.
     var focusHandled by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(focusPage) {
         if (focusPage != null && !focusHandled && focusPage < state.pageCount) {
@@ -133,13 +129,16 @@ fun HomeScreen(
         }
     }
 
+    val assignedCount = state.pages.count { it.hasMedia }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Header(state, assignedCount, onOpenSettings)
+        StatusHeader(state, assignedCount, onOpenSettings)
 
         PageGrid(
             modifier = Modifier
@@ -148,111 +147,134 @@ fun HomeScreen(
             state = state,
             thumbnailFor = thumbnailFor,
             onTapPage = { index ->
-                pendingPage = index
-                singlePicker.launch(request)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                if (state.pages.getOrNull(index)?.hasMedia == true) {
+                    // A configured screen opens its details rather than dropping straight into a
+                    // picker, so changing a soundtrack does not mean replacing the picture.
+                    onOpenPageDetails(index)
+                } else {
+                    pendingPage = index
+                    singlePicker.launch(request)
+                }
             },
-            onLongPressPage = onClearPage,
-        )
-
-        Text(
-            text = "Tap a page to change it · long-press to clear it",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
+            onLongPressPage = { index ->
+                if (state.pages.getOrNull(index)?.hasMedia == true) {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    confirmClearPage = index
+                }
+            },
         )
 
         val banner = state.errorMessage ?: state.noticeMessage
         if (banner != null) {
-            MessageBanner(
-                message = banner,
-                isError = state.errorMessage != null,
-                onDismiss = onDismissError,
-            )
+            MessageBanner(banner, state.errorMessage != null, onDismissError)
         }
 
-        PrimaryAction(
+        PrimaryActions(
             state = state,
             assignedCount = assignedCount,
-            emptyPageCount = emptyPages.size,
-            onPickAll = { multiPicker.launch(request) },
-            onFillOneByOne = { chainQueue = emptyPages },
-            onApplyWallpaper = onApplyWallpaper,
+            onApplyWallpaper = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onApplyWallpaper()
+            },
+            onChangeMedia = { multiPicker.launch(request) },
+            onOpenSettings = onOpenSettings,
+        )
+    }
+
+    // A long press is easy to trigger by accident, so clearing a screen asks first.
+    confirmClearPage?.let { index ->
+        AlertDialog(
+            onDismissRequest = { confirmClearPage = null },
+            title = { Text("Clear screen ${index + 1}?") },
+            text = { Text("The picture and any soundtrack on this screen will be removed.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearPage(index)
+                    confirmClearPage = null
+                }) {
+                    Text("Clear", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearPage = null }) { Text("Keep") }
+            },
         )
     }
 }
 
 @Composable
-private fun Header(state: ConfigUiState, assignedCount: Int, onOpenSettings: () -> Unit) {
+private fun StatusHeader(state: ConfigUiState, assignedCount: Int, onOpenSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "PAGE WALLPAPER",
+                style = MaterialTheme.typography.labelSmall,
+                color = PageWallColors.TextSecondary,
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Your home screens",
+                    if (state.wallpaperActive) "Active" else "Not set up",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    color = PageWallColors.TextPrimary,
                 )
                 if (state.wallpaperActive) {
-                    Spacer(Modifier.size(8.dp))
-                    // A label, not a control. The tick that used to sit here looked tappable
-                    // and did nothing when tapped.
-                    Text(
-                        text = "ON",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        // The headline beside it can squeeze this pill until "ON" wraps to
-                        // one letter per line.
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
+                    Spacer(Modifier.width(10.dp))
+                    StatusPill()
                 }
             }
             Text(
                 text = statusLine(state, assignedCount),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PageWallColors.TextSecondary,
             )
         }
-        IconButton(onClick = onOpenSettings) {
-            Icon(Icons.Default.Tune, contentDescription = "Settings")
+        // 48dp so the target is reachable even though the glyph is small.
+        OutlinedButton(
+            onClick = onOpenSettings,
+            shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(Icons.Default.Tune, contentDescription = "Settings", tint = PageWallColors.Cyan)
         }
     }
 }
 
-/** One short line that says the only thing worth saying right now. */
-private fun statusLine(state: ConfigUiState, assignedCount: Int): String = when {
-    // Samsung compatibility is a working state, not a half-finished setup, so it reports as one.
-    state.wallpaperActive && state.detectionMode == "TOUCH" ->
-        "Active · ${state.pageCount} screens · Samsung compatibility"
-
-    state.wallpaperActive && !state.scrollingDetected ->
-        "Active · swipe your home screen to start tracking"
-
-    state.wallpaperActive ->
-        "Active · ${state.pageCount} screens · tap a tile to change it"
-
-    assignedCount == 0 ->
-        "Pick your photos, then set it once and you are done"
-
-    state.pageCountIsDetected ->
-        "$assignedCount of ${state.pageCount} filled · ${state.pageCount} pages detected"
-
-    else ->
-        "$assignedCount of ${state.pageCount} filled · page count adjusts itself once set"
+/** Text as well as colour: the state must not be carried by the glow alone. */
+@Composable
+private fun StatusPill() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .border(1.dp, PageWallColors.Violet.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(
+            "ON",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
 }
 
-/**
- * A grid sized to the space it is given, never scrollable.
- *
- * Weighted rows rather than a lazy grid: a lazy grid would happily overflow and reintroduce the
- * scrolling this screen exists to avoid.
- */
-@OptIn(ExperimentalFoundationApi::class)
+private fun statusLine(state: ConfigUiState, assignedCount: Int): String = when {
+    state.wallpaperActive && state.detectionMode == "TOUCH" ->
+        "${state.pageCount} screens · Samsung compatibility"
+
+    state.wallpaperActive && !state.scrollingDetected ->
+        "${state.pageCount} screens · swipe your home screen to begin tracking"
+
+    state.wallpaperActive -> "${state.pageCount} screens · offset tracking"
+    assignedCount == 0 -> "Choose a picture for each screen, then set it once"
+    else -> "$assignedCount of ${state.pageCount} screens ready"
+}
+
 @Composable
 private fun PageGrid(
     modifier: Modifier,
@@ -262,31 +284,32 @@ private fun PageGrid(
     onLongPressPage: (Int) -> Unit,
 ) {
     val pages = state.pages
-    val columns = if (pages.size <= 4) 2 else 3
+    // Two columns keeps the pictures large; three only once there are too many to fit otherwise.
+    val columns = if (pages.size <= 6) 2 else 3
     val rows = ceil(pages.size / columns.toFloat()).toInt().coerceAtLeast(1)
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         repeat(rows) { row ->
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 repeat(columns) { column ->
                     val index = row * columns + column
                     if (index < pages.size) {
-                        PageTile(
+                        PageCard(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight(),
                             page = pages[index],
                             thumbnail = thumbnailFor(pages[index]),
+                            isTracked = state.wallpaperActive && state.displayedPage == index,
                             onTap = { onTapPage(index) },
                             onLongPress = { onLongPressPage(index) },
                         )
                     } else {
-                        // Keeps the last row's tiles the same width as every other row's.
                         Spacer(Modifier.weight(1f))
                     }
                 }
@@ -295,197 +318,221 @@ private fun PageGrid(
     }
 }
 
+/** One home screen, drawn as a miniature panel. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PageTile(
+private fun PageCard(
     modifier: Modifier,
     page: PageConfig,
     thumbnail: File?,
+    isTracked: Boolean,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(22.dp)
     val bitmap by rememberPageBitmap(thumbnail)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(TRANSITION_MS),
+        label = "cardPress",
+    )
+
+    val description = buildString {
+        append("Screen ${page.index + 1}, ")
+        append(if (page.hasMedia) page.kindLabel else "empty")
+        if (page.hasAudio) append(", has a soundtrack")
+        if (isTracked) append(", currently showing")
+    }
 
     Box(
         modifier = modifier
+            .scale(scale)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
             .then(
-                if (page.hasMedia) {
-                    Modifier
+                if (isTracked) {
+                    Modifier.border(2.dp, PageWallColors.AccentSweep, shape)
                 } else {
-                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
                 }
             )
-            .combinedClickable(onClick = onTap, onLongClick = onLongPress),
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onTap,
+                onLongClick = onLongPress,
+            )
+            .semantics { contentDescription = description },
     ) {
         val image = bitmap
         if (image != null) {
             Image(
                 bitmap = image,
-                contentDescription = "Page ${page.index + 1}",
+                contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else if (!page.hasMedia) {
+            // Keeps the label legible over a bright picture.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0.45f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.72f),
+                        )
+                    )
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(PageWallColors.GlassSheen))
             Icon(
                 Icons.Default.Add,
-                contentDescription = "Add to page ${page.index + 1}",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(28.dp),
+                contentDescription = null,
+                tint = PageWallColors.TextSecondary,
+                modifier = Modifier.align(Alignment.Center).size(30.dp),
             )
         }
 
-        // Page number, always legible: a dark pill rather than text straight on the photo.
-        Box(
+        Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(8.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f))
-                .size(24.dp),
-            contentAlignment = Alignment.Center,
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (page.hasMedia) {
+                Badge(Icons.Default.Check, "Configured", PageWallColors.Violet)
+            }
+            when (page.mediaKind) {
+                MediaKind.VIDEO -> if (page.hasMedia) Badge(Icons.Default.PlayCircle, "Video", null)
+                MediaKind.GIF -> if (page.hasMedia) Badge(Icons.Default.Gif, "GIF", null)
+                MediaKind.IMAGE -> Unit
+            }
+            if (page.hasAudio) Badge(Icons.Default.MusicNote, "Has soundtrack", null)
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         ) {
             Text(
-                "${page.index + 1}",
-                color = Color.White,
-                fontSize = 12.sp,
+                "SCREEN ${page.index + 1}",
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (isTracked) "Showing now" else if (page.hasMedia) page.kindLabel else "Tap to add",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isTracked) PageWallColors.Cyan else Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
 
-        val badge = when {
-            !page.hasMedia -> null
-            page.mediaKind == MediaKind.VIDEO -> Icons.Default.PlayCircle
-            page.mediaKind == MediaKind.GIF -> Icons.Default.Gif
-            else -> null
-        }
-        if (badge != null) {
-            Icon(
-                imageVector = badge,
-                contentDescription = page.kindLabel,
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(8.dp)
-                    .size(18.dp),
-            )
-        }
-
-        // A tick on every filled page, so it is obvious at a glance which home screens are done
-        // and which are still waiting for a picture.
-        if (page.hasMedia) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .size(20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "Set",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-        }
-
-        // The page this tile stands for, spelled out rather than left to a numbered badge.
-        Text(
-            text = if (page.hasMedia) "Screen ${page.index + 1}" else "Add to screen ${page.index + 1}",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
-                .padding(vertical = 3.dp, horizontal = 4.dp),
+@Composable
+private fun Badge(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    tint: Color?,
+) {
+    Box(
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .size(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = description,
+            tint = tint ?: Color.White,
+            modifier = Modifier.size(15.dp),
         )
     }
 }
 
 @Composable
-private fun PrimaryAction(
+private fun PrimaryActions(
     state: ConfigUiState,
     assignedCount: Int,
-    emptyPageCount: Int,
-    onPickAll: () -> Unit,
-    onFillOneByOne: () -> Unit,
     onApplyWallpaper: () -> Unit,
+    onChangeMedia: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    val readyToApply = assignedCount > 0 && !state.wallpaperActive
-
-    Button(
-        onClick = if (readyToApply) onApplyWallpaper else onPickAll,
-        enabled = !state.busy,
-        shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
-    ) {
-        if (state.busy) {
-            CircularProgressIndicator(
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(20.dp),
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (state.wallpaperActive) {
+            // Already working: this is a status, not the thing to press next.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, PageWallColors.AccentSweep, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "WALLPAPER ACTIVE",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PageWallColors.TextPrimary,
+                    maxLines = 1,
+                )
+            }
         } else {
-            Text(
-                text = when {
-                    readyToApply -> "Set as wallpaper"
-                    state.wallpaperActive -> "Change photos"
-                    else -> "Choose photos"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                // A longer label than this was being clipped mid-word inside the button.
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-
-    // The guaranteed route when a picker refuses to return more than one photo at a time.
-    if (emptyPageCount > 0 && !state.busy) {
-        TextButton(onClick = onFillOneByOne, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = if (emptyPageCount == 1) {
-                    "Fill the empty page"
+            Button(
+                onClick = onApplyWallpaper,
+                enabled = !state.busy && assignedCount > 0,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PageWallColors.Violet),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                if (state.busy) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
                 } else {
-                    "Fill the $emptyPageCount empty pages one at a time"
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                    Text("SET WALLPAPER", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onChangeMedia,
+                enabled = !state.busy,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            ) { Text("Change media", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+
+            OutlinedButton(
+                onClick = onOpenSettings,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            ) { Text("Settings", maxLines = 1) }
+        }
+
+        if (!state.wallpaperActive && assignedCount > 0) {
+            Text(
+                "Your phone will ask where to put it — choose Home screen.",
+                style = MaterialTheme.typography.bodySmall,
+                color = PageWallColors.TextSecondary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-    }
-
-    val hint = when {
-        readyToApply -> "Your phone will ask where to put it — choose Home screen."
-        // Only worth saying while nothing is tracking yet; a working setup needs no nagging.
-        state.wallpaperActive && state.detectionMode != "TOUCH" && !state.scrollingDetected ->
-            "Still the same on every screen? Tap the settings icon."
-
-        else -> null
-    }
-    if (hint != null) {
-        Text(
-            text = hint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }
 
@@ -496,11 +543,8 @@ private fun MessageBanner(message: String, isError: Boolean, onDismiss: () -> Un
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(
-                if (isError) {
-                    MaterialTheme.colorScheme.errorContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                }
+                if (isError) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.secondaryContainer
             )
             .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -508,22 +552,19 @@ private fun MessageBanner(message: String, isError: Boolean, onDismiss: () -> Un
         Text(
             text = message,
             style = MaterialTheme.typography.bodySmall,
-            color = if (isError) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.onSecondaryContainer
-            },
+            color = if (isError) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onDismiss) { Text("OK") }
     }
 }
 
-/** Decodes a tile thumbnail off the main thread, re-running when the file behind it changes. */
+/** Decodes a card thumbnail off the main thread, re-running when the file behind it changes. */
 @Composable
-private fun rememberPageBitmap(file: File?): State<ImageBitmap?> {
+internal fun rememberPageBitmap(file: File?, sampleSize: Int = 4): State<ImageBitmap?> {
     val stamp = file?.lastModified() ?: 0L
-    return produceState<ImageBitmap?>(null, file?.path, stamp) {
+    return produceState<ImageBitmap?>(null, file?.path, stamp, sampleSize) {
         value = if (file == null) {
             null
         } else {
@@ -531,7 +572,7 @@ private fun rememberPageBitmap(file: File?): State<ImageBitmap?> {
                 runCatching {
                     BitmapFactory.decodeFile(
                         file.absolutePath,
-                        BitmapFactory.Options().apply { inSampleSize = 4 },
+                        BitmapFactory.Options().apply { inSampleSize = sampleSize },
                     )?.asImageBitmap()
                 }.getOrNull()
             }

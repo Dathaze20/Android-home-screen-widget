@@ -3,6 +3,8 @@ package com.dathaze.pagewall.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +24,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +66,7 @@ fun SettingsSheet(
     onDefaultHomePageChange: (Int) -> Unit,
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
+    onRestartOnboarding: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -78,61 +85,17 @@ fun SettingsSheet(
                 fontWeight = FontWeight.Bold,
             )
 
-            if (state.wallpaperActive && !state.scrollingDetected) {
-                ScrollingWarning(onApplyWallpaper)
-                HorizontalDivider()
-            }
-
+            SectionHeading("HOME SCREENS")
             PageCountRow(state, onPageCountChange, onResetPageCount)
-
-            HorizontalDivider()
-
             HomeSyncRow(state, onDefaultHomePageChange, onSyncOnReturnHomeChange, onSyncWallpaperTo)
 
             HorizontalDivider()
-
-            LauncherReport(
-                state = state,
-                onCaptureLeftEdge = onCaptureLeftEdge,
-                onCaptureRightEdge = onCaptureRightEdge,
-                onClearCalibration = onClearCalibration,
-                onResetDiagnostics = onResetDiagnostics,
-                onTouchCompatibilityChange = onTouchCompatibilityChange,
-            )
-
-            HorizontalDivider()
-
+            SectionHeading("APPEARANCE")
             PhotoFitRow(state, onPhotoFitChange)
-
-            HorizontalDivider()
-
-            SettingSwitch(
-                title = "Animate GIFs and videos",
-                subtitle = "Off holds each one on its first frame and uses far less battery.",
-                checked = state.motionEnabled,
-                onCheckedChange = onMotionChange,
-            )
-
-            if (state.motionEnabled) {
-                SettingSwitch(
-                    title = "Video sound",
-                    subtitle = "Play a video page's own soundtrack.",
-                    checked = state.videoSoundEnabled,
-                    onCheckedChange = onVideoSoundChange,
-                )
-            }
-
-            SettingSwitch(
-                title = "Parallax drift",
-                subtitle = "Let a photo slide a little as you swipe.",
-                checked = state.parallaxEnabled,
-                onCheckedChange = onParallaxChange,
-            )
-
             Column {
                 Text("Crossfade: ${state.crossfadeMillis} ms")
                 Text(
-                    "Video pages cut instead of fading — the player owns the whole screen.",
+                    "Video screens cut instead of fading \u2014 the player owns the whole screen.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -142,21 +105,40 @@ fun SettingsSheet(
                     valueRange = 0f..PageStore.MAX_CROSSFADE.toFloat(),
                 )
             }
+            SettingSwitch(
+                title = "Parallax drift",
+                subtitle = "Let a picture slide a little as you swipe.",
+                checked = state.parallaxEnabled,
+                onCheckedChange = onParallaxChange,
+            )
 
             HorizontalDivider()
-
+            SectionHeading("MEDIA")
             SettingSwitch(
-                title = "Play a song per page",
+                title = "Animate GIFs and videos",
+                subtitle = "Off holds each one on its first frame and uses far less battery.",
+                checked = state.motionEnabled,
+                onCheckedChange = onMotionChange,
+            )
+            if (state.motionEnabled) {
+                SettingSwitch(
+                    title = "Video sound",
+                    subtitle = "Play a video screen's own soundtrack.",
+                    checked = state.videoSoundEnabled,
+                    onCheckedChange = onVideoSoundChange,
+                )
+            }
+            SettingSwitch(
+                title = "Play a song per screen",
                 subtitle = "Plays while you are on the home screen and stops when you open an " +
                     "app. Never interrupts music that is already playing.",
                 checked = state.audioEnabled,
                 onCheckedChange = onAudioEnabledChange,
             )
-
             if (state.audioEnabled) {
                 SettingSwitch(
                     title = "Loop the track",
-                    subtitle = "Keep it going while you stay on that page.",
+                    subtitle = "Keep it going while you stay on that screen.",
                     checked = state.audioLooping,
                     onCheckedChange = onAudioLoopChange,
                 )
@@ -168,121 +150,39 @@ fun SettingsSheet(
                         valueRange = 0f..1f,
                     )
                 }
+            }
+
+            HorizontalDivider()
+            SectionHeading("COMPATIBILITY")
+            TouchModeRow(state, onTouchCompatibilityChange)
+
+            HorizontalDivider()
+            // Collapsed: the numbers matter when something is wrong and are noise otherwise.
+            var diagnosticsOpen by rememberSaveable { mutableStateOf(false) }
+            TextButton(
+                onClick = { diagnosticsOpen = !diagnosticsOpen },
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
                 Text(
-                    "Assign a track by sharing it from your music app to Page Wallpaper.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (diagnosticsOpen) "Hide advanced diagnostics"
+                    else "Advanced diagnostics",
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ScrollingWarning(onApplyWallpaper: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Pages not changing as you swipe?", fontWeight = FontWeight.SemiBold)
-        Text(
-            "Swipe across your home screen first — the launcher only reports where it is " +
-                "once you do. If every page still looks identical, long-press the home screen " +
-                "→ Settings and turn on “Wallpaper scrolling”. Not every One UI " +
-                "version has that switch; where it is missing, scrolling is already on and the " +
-                "problem is something else.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        TextButton(
-            onClick = onApplyWallpaper,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-        ) { Text("Re-apply wallpaper") }
-    }
-}
-
-/**
- * What the launcher is actually telling the wallpaper, and the calibration that copes with it.
- *
- * Pages that never change look identical whether the launcher reports nothing, reports one fixed
- * position, or reports fine and something else is wrong. The range line separates them: if the
- * narrowest and widest offsets ever seen are the same number, the launcher is not moving the
- * wallpaper at all and no arithmetic can recover a page from it.
- */
-@Composable
-private fun LauncherReport(
-    state: ConfigUiState,
-    onCaptureLeftEdge: () -> Unit,
-    onCaptureRightEdge: () -> Unit,
-    onClearCalibration: () -> Unit,
-    onResetDiagnostics: () -> Unit,
-    onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
-) {
-    val span = state.observedMaxOffset - state.observedMinOffset
-    val movesAtAll = state.observedMinOffset >= 0f && span > 0.001f
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("What your launcher reports", fontWeight = FontWeight.SemiBold)
-        Text(
-            text = when {
-                !state.wallpaperActive ->
-                    "Set this as your wallpaper first, then swipe your home screen."
-
-                state.offsetEventCount == 0 ->
-                    "Nothing yet. Swipe across your home screen a few times, then reopen this."
-
-                !movesAtAll ->
-                    "Your launcher reports a position, but the same one every time. It is not " +
-                        "moving the wallpaper as you swipe, so no live wallpaper on this phone " +
-                        "can tell the pages apart. Try Set left edge and Set right edge below; " +
-                        "if the range still does not move, the stock launcher cannot do this."
-
-                span < 0.2f ->
-                    "Your launcher only sweeps part of the range. Calibrate with the two buttons " +
-                        "below so the whole range maps across your pages."
-
-                else -> "Working — the offset moves across the range as you swipe."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // Plain numbers, so a screenshot of this panel is enough to diagnose the phone.
-        Text(
-            text = "tracking mode: ${if (state.detectionMode == "TOUCH") "Samsung touch" else "Offset"}\n" +
-                "actual wallpaper screen: ${state.displayedPage + 1}\n" +
-                "touch events received: ${state.touchEventsRaw}\n" +
-                "recognised swipes: ${state.recognisedSwipes}\n" +
-                "last recognised swipe: ${state.lastSwipe.ifEmpty { "\u2014" }}\n" +
-                "default home screen: ${state.defaultHomePage + 1}\n" +
-                "xOffset: ${fmt(state.lastOffset)}\n" +
-                "xOffsetStep: ${fmt(state.lastOffsetStep)}\n" +
-                "range seen: ${fmt(state.observedMinOffset)} → ${fmt(state.observedMaxOffset)}\n" +
-                "offset reports: ${state.offsetEventCount}\n" +
-                "offset-derived screen: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "\u2014"}\n" +
-                "screens (manual): ${state.pageCount}\n" +
-                "screens (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
-                "calibration: ${if (state.isCalibrated) "${fmt(state.calibrationMin)} → ${fmt(state.calibrationMax)}" else "off"}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        TouchModeRow(state, onTouchCompatibilityChange)
-
-        Text(
-            "Calibration: stand on your leftmost home screen, open this and tap Set left edge. " +
-                "Then go to your rightmost home screen and tap Set right edge.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onCaptureLeftEdge, modifier = Modifier.weight(1f)) {
-                Text("Set left edge", maxLines = 1)
+            if (diagnosticsOpen) {
+                LauncherReport(
+                    state = state,
+                    onCaptureLeftEdge = onCaptureLeftEdge,
+                    onCaptureRightEdge = onCaptureRightEdge,
+                    onClearCalibration = onClearCalibration,
+                    onResetDiagnostics = onResetDiagnostics,
+                )
+                TextButton(
+                    onClick = onRestartOnboarding,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Show setup guide again") }
             }
-            OutlinedButton(onClick = onCaptureRightEdge, modifier = Modifier.weight(1f)) {
-                Text("Set right edge", maxLines = 1)
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onClearCalibration) { Text("Clear calibration") }
-            TextButton(onClick = onResetDiagnostics) { Text("Reset readings") }
         }
     }
 }
@@ -303,6 +203,17 @@ private fun fmt(value: Float): String =
  * Touch tracking only learns about page changes it observes as gestures, so returning from an
  * app, a restarted engine and any launcher behaviour that cannot be observed need an answer here.
  */
+/** A quiet all-caps rule, so the groups read as groups without heavy chrome. */
+@Composable
+private fun SectionHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = PageWallColors.Cyan,
+        fontWeight = FontWeight.Bold,
+    )
+}
+
 @Composable
 private fun HomeSyncRow(
     state: ConfigUiState,
@@ -456,7 +367,7 @@ private fun PageCountRow(
         if (!state.pageCountIsDetected && state.detectedPageCount > 0) {
             TextButton(
                 onClick = onResetPageCount,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                contentPadding = PaddingValues(0.dp),
             ) { Text("Use the detected ${state.detectedPageCount}") }
         }
     }
