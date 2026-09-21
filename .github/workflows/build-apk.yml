@@ -23,6 +23,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Catches a definition deleted while its callers survive — the shape that has broken
+      # this build twice, and that the brace and named-argument checks both miss.
+      - name: Check for dangling references
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          python3 scripts/check-dangling-refs.py origin/main
+
       - name: Run unit tests
         # No --stacktrace: it buries the handful of "e: file://..." compiler lines under ~160
         # lines of Gradle internals, which makes a failure unreadable from the log tail. The

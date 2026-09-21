@@ -187,6 +187,96 @@ fun SettingsSheet(
     }
 }
 
+/**
+ * What the launcher is actually telling the wallpaper, plus the calibration that copes with it.
+ *
+ * Lives behind Advanced diagnostics: these numbers matter when the screens are not changing and
+ * are noise the rest of the time. The range line is the decisive one — if the narrowest and
+ * widest offsets ever seen are the same number, the launcher never moves the wallpaper and no
+ * arithmetic can recover a screen from it, which is what Samsung compatibility exists for.
+ */
+@Composable
+private fun LauncherReport(
+    state: ConfigUiState,
+    onCaptureLeftEdge: () -> Unit,
+    onCaptureRightEdge: () -> Unit,
+    onClearCalibration: () -> Unit,
+    onResetDiagnostics: () -> Unit,
+) {
+    val span = state.observedMaxOffset - state.observedMinOffset
+    val offsetMoves = state.observedMinOffset >= 0f && span > 0.001f
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = when {
+                !state.wallpaperActive ->
+                    "Set this as your wallpaper first, then swipe your home screen."
+
+                state.detectionMode == "TOUCH" && state.touchEventsRaw > 0 ->
+                    "Following your swipes, because this launcher reports a fixed wallpaper " +
+                        "position. That is expected on One UI."
+
+                state.detectionMode == "TOUCH" ->
+                    "Waiting for touches. If this stays at zero after swiping, the launcher " +
+                        "forwards nothing to the wallpaper and neither method can follow it."
+
+                offsetMoves -> "Following the launcher's own scroll position."
+
+                else -> "Swipe your home screen a few times, then reopen this."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        // Plain numbers, so a screenshot of this panel is enough to diagnose a phone.
+        Text(
+            text = "tracking mode: ${if (state.detectionMode == "TOUCH") "Samsung touch" else "Offset"}\n" +
+                "actual wallpaper screen: ${state.displayedPage + 1}\n" +
+                "touch events received: ${state.touchEventsRaw}\n" +
+                "recognised swipes: ${state.recognisedSwipes}\n" +
+                "last recognised swipe: ${state.lastSwipe.ifEmpty { "\u2014" }}\n" +
+                "default home screen: ${state.defaultHomePage + 1}\n" +
+                "xOffset: ${fmt(state.lastOffset)}\n" +
+                "xOffsetStep: ${fmt(state.lastOffsetStep)}\n" +
+                "range seen: ${fmt(state.observedMinOffset)} \u2192 ${fmt(state.observedMaxOffset)}\n" +
+                "offset reports: ${state.offsetEventCount}\n" +
+                "offset-derived screen: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "\u2014"}\n" +
+                "screens (manual): ${state.pageCount}\n" +
+                "screens (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
+                "calibration: ${if (state.isCalibrated) "${fmt(state.calibrationMin)} \u2192 ${fmt(state.calibrationMax)}" else "off"}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Text(
+            "Calibration is for a launcher that only sweeps part of the range: stand on your " +
+                "leftmost screen and tap Set left edge, then the rightmost and Set right edge.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = onCaptureLeftEdge,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            ) { Text("Set left edge", maxLines = 1) }
+            OutlinedButton(
+                onClick = onCaptureRightEdge,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+            ) { Text("Set right edge", maxLines = 1) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                onClick = onClearCalibration,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("Clear calibration") }
+            TextButton(
+                onClick = onResetDiagnostics,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("Reset readings") }
+        }
+    }
+}
+
 /** -1 is the "never reported" marker rather than a real value. */
 private fun fmt(value: Float): String =
     if (value < 0f) "none" else String.format("%.3f", value)
