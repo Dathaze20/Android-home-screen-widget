@@ -24,17 +24,39 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
+        # --rerun-tasks on the test task alone would also rebuild everything it depends on, so
+        # the cache is left alone and the XML results below are checked instead.
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Verify tests actually executed
+        run: |
+          results="app/build/test-results/testDebugUnitTest"
+          if [ ! -d "$results" ]; then
+            echo "No test results directory: the test task did not run."; exit 1
+          fi
+          total=$(grep -ho 'tests="[0-9]*"' "$results"/*.xml | grep -o '[0-9]*' | paste -sd+ | bc)
+          failures=$(grep -ho 'failures="[0-9]*"' "$results"/*.xml | grep -o '[0-9]*' | paste -sd+ | bc)
+          errors=$(grep -ho 'errors="[0-9]*"' "$results"/*.xml | grep -o '[0-9]*' | paste -sd+ | bc)
+          echo "tests=$total failures=$failures errors=$errors"
+          if [ "${total:-0}" -lt 1 ]; then echo "No tests executed."; exit 1; fi
+          if [ "${failures:-0}" -ne 0 ] || [ "${errors:-0}" -ne 0 ]; then exit 1; fi
+          echo "$total tests executed, all passing."
+
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload test report on failure
-        if: failure()
+      # Always, not just on failure: a green tick proves the task succeeded, not that any
+      # test actually ran. Gradle reports success on a cache hit too, so the report is the
+      # only evidence of how many tests executed.
+      - name: Upload test report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-report
-          path: app/build/reports/tests/
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
