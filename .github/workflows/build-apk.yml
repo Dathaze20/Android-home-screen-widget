@@ -24,9 +24,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        # --rerun-tasks on the test task alone would also rebuild everything it depends on, so
-        # the cache is left alone and the XML results below are checked instead.
-        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+        # No --stacktrace: it buries the handful of "e: file://..." compiler lines under ~160
+        # lines of Gradle internals, which makes a failure unreadable from the log tail. The
+        # output is kept so the step below can surface just the errors.
+        run: set -o pipefail; ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee compile.log
+
+      - name: Show compiler errors
+        if: failure()
+        run: |
+          echo "::group::Kotlin compiler errors"
+          grep -E '^(e|w): ' compile.log | head -60 || echo "(no compiler diagnostics found)"
+          echo "::endgroup::"
 
       - name: Verify tests actually executed
         run: |
@@ -44,7 +52,7 @@ jobs:
 
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: set -o pipefail; ./gradlew assembleDebug --no-daemon 2>&1 | tee -a compile.log
 
       # Always, not just on failure: a green tick proves the task succeeded, not that any
       # test actually ran. Gradle reports success on a cache hit too, so the report is the
