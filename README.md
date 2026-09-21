@@ -59,9 +59,9 @@ The APK lands in `app/build/outputs/apk/debug/`.
 
 | You pick | What happens |
 | --- | --- |
-| **Photo** (JPEG, PNG, HEIC) | Shrunk to screen size on import, drawn with center-crop, fades between pages, drifts slightly as you swipe |
+| **Photo** (JPEG, PNG, HEIC) | Shrunk to screen size on import, drawn whole over a blurred copy of itself (see Photo fit), fades between pages |
 | **GIF** (or animated WebP) | Copied as-is and looped on the page |
-| **Video** (MP4, and whatever else your phone records) | Looped and center-cropped, silent by default |
+| **Video** (MP4, and whatever else your phone records) | Looped and center-cropped, silent by default. Photo fit does not apply: MediaPlayer draws video straight onto the surface, so it always crops to fill |
 
 One picker covers all three — Android's built-in photo picker, which needs no storage permission.
 
@@ -157,7 +157,7 @@ the engine starts drawing again.
 | File | Role |
 | --- | --- |
 | `wallpaper/PageWallpaperService.kt` | The live wallpaper. Turns scroll offsets into a page index, picks the mode, drives crossfades, updates the widget |
-| `wallpaper/PageRenderer.kt` | Draws a frame: scale to cover, pan by the scroll offset, alpha-blend during a fade |
+| `wallpaper/PageRenderer.kt` | Draws a frame: fit the whole picture over a blurred backdrop, or scale to cover when Fill screen is chosen, alpha-blending during a fade |
 | `wallpaper/PageMediaCache.kt` | Decodes via `ImageDecoder`, so a still photo and an animated GIF come back as the same kind of object |
 | `wallpaper/VideoPageController.kt` | Owns `MediaPlayer` and the surface while a video page is showing |
 | `data/PageStore.kt` | Page assignments, in SharedPreferences |
