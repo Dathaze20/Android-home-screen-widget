@@ -83,31 +83,54 @@ Sound from a video is muted unless you switch it on.
 
 1. Install the APK.
 2. Open **Page Wallpaper**, tap **Choose photos**, and pick several at once. They land on page 1,
-   2, 3 and so on in the order you picked them.
-3. Tap **Set as wallpaper** and confirm.
-4. **Turn on wallpaper scrolling in your launcher.** On One UI: long-press the home screen →
-   *Settings* → enable **Wallpaper scrolling** (older versions call it the parallax effect).
+   2, 3 and so on in the order you picked them. Each tile says which home screen it is and gets a
+   tick once filled. Tap a tile to change it, long-press to empty it.
+3. Tap **Set as wallpaper** and confirm **Home screen**.
+4. Swipe across your home screens.
 
-Step 4 is the one that catches everybody. With that switch off, Android never tells *any* live
-wallpaper where you scrolled to, so every page shows the same thing. The app watches for this and
-says so instead of just looking broken.
+That is the whole setup. One UI shows a single picture in its wallpaper preview and offers one
+Home screen slot — that is normal, not a fault. You are installing one live wallpaper, and the
+wallpaper itself decides which of your pictures to draw on each page.
 
-After that, you are done. Swipe and it changes.
+### How it follows the pages
+
+Two methods, in order of preference:
+
+| Method | When it runs |
+| --- | --- |
+| **Offset** | The launcher reports where it has scrolled to, and the page falls out of that |
+| **Samsung compatibility** | The launcher reports a fixed position, so the swipe itself is watched and the page stepped by hand |
+
+One UI Home reports a fixed offset of 0.5 with no page step, so on a Galaxy the second method
+does the work. It switches itself on; there is an Auto / Always on / Off setting behind the
+settings icon to force it either way.
+
+**Confirmed working on a Galaxy A17 running One UI**, five pages each showing a different photo.
+Verified by the person this was built for, on their own phone — not by the author, who has no
+device.
+
+### Photo fit
+
+**Full image** (default) shows the whole picture at its own aspect ratio, nothing cropped, over a
+blurred darkened copy of itself. A wide picture on a tall phone cannot be complete, undistorted
+*and* reach all four corners, so the blurred copy fills the rest instead of black bars.
+
+**Fill screen** zooms until the picture covers every corner, cutting off what does not fit.
 
 ### The screen itself
 
-Every home screen page is a tile in a grid that is sized to the display, so there is nothing to
-scroll — you see all your pages and what is on each at once. **Tap a tile** to change that page,
-**long-press** to empty it. Settings live behind the icon in the corner, because you touch them
-roughly never.
+Every home screen page is a tile in a grid sized to the display, so there is nothing to scroll —
+you see all your pages and what is on each at once.
 
 ### How many pages you have
 
-The app works it out for you, with one catch: it can only do so **after** the wallpaper is
-running. The launcher reports how wide one page is as a fraction of the scroll range, and the page
-count falls out of that — but nothing tells an app before then, so until you have applied the
-wallpaper and swiped once, the app says it is guessing. After that it corrects itself. There is a
-manual override in settings for a launcher that reports something odd.
+Set behind the settings icon. The launcher's own count is used when it reports one, but One UI
+does not, so the number you set is what your pictures are divided across. If pictures land on the
+wrong screens, adjust that number first.
+
+If your launcher sweeps only part of the scroll range, **Set left edge** / **Set right edge**
+calibrate it: stand on the leftmost home screen and tap the first, the rightmost and tap the
+second.
 
 ### Changing a page later, without hunting for the app
 
@@ -149,26 +172,27 @@ keeps working after you delete the original from your gallery.
 
 ## Known limitations
 
-- **Wallpaper scrolling must be on in the launcher.** The single most common reason a per-page
-  wallpaper appears not to work, and not fixable from inside the app.
-- **Page count comes from you, not the launcher.** Android reports a scroll *fraction*, and
-  launchers disagree about how to count pages, so the app asks rather than guesses.
-- **No crossfade to or from a video page**, and no parallax on video — see above.
+- **One UI has no per-page wallpaper of its own.** It treats the whole home area as one wallpaper
+  target, which is why this has to be a live wallpaper swapping its own picture.
+- **Samsung compatibility mode needs the launcher to forward touches.** The diagnostics panel's
+  `touch reports` line says whether yours does.
+- **No crossfade to or from a video page**, and no parallax on video: MediaPlayer owns the whole
+  surface while a video page is showing.
 - **The lock screen is a separate wallpaper.** This app sets the home screen one only.
+
+## Diagnostics
+
+Behind the settings icon, a panel reports exactly what the launcher is doing: raw offset and
+step, the widest range ever seen, both page counts, which detection mode is running, how many
+touch events have arrived and the last swipe recognised. A screenshot of it is enough to diagnose
+a phone whose pictures are not changing.
 
 ## Status
 
-AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28 (needed for the GIF decoder).
+AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28.
 
-**Compiles cleanly** — the GitHub Actions workflow builds a debug APK on every push, and the
-badge above reflects the latest run.
+Unit tests cover the page arithmetic (`PageMathTest`) and the swipe thresholds (`SwipeMathTest`)
+and run in CI before every build; no APK is produced if they fail.
 
-**Not yet run on a phone.** Everything below this line is still unverified against real hardware,
-and these are the parts most likely to need a tweak:
-
-- whether One UI's launcher reports scroll offsets the way the page maths expects
-- whether `SCALE_TO_FIT_WITH_CROPPING` crops video the way it should on this device
-- how cleanly the surface hands back and forth between MediaPlayer and the canvas when you swipe
-  between a video page and a photo page
-
-If something looks wrong on the phone, that list is where to look first.
+Signed with a fixed debug key checked into the repo, so each build installs over the last instead
+of forcing an uninstall. A debug key with the standard debug password, not a release key.
