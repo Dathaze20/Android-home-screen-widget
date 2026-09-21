@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Page Wallpaper</string>
+    <string name="wallpaper_label">Page Wallpaper</string>
+    <string name="wallpaper_description">A different photo, GIF or video on every home screen page.</string>
+    <string name="widget_label">Page Wallpaper</string>
+    <string name="widget_description">Shows the current home screen page; tap to change what it shows.</string>
+    <string name="widget_page">Page %1$d</string>
+    <string name="widget_tap_to_set">Tap to choose</string>
+</resources>

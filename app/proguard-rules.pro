@@ -1,0 +1,2 @@
+-keep class com.dathaze.pagewall.wallpaper.PageWallpaperService { *; }
+-keep class com.dathaze.pagewall.widget.PageWidgetProvider { *; }
