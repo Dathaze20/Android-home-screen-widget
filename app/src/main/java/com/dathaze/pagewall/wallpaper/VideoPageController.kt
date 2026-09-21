@@ -30,6 +30,15 @@ class VideoPageController {
     /** MediaPlayer throws if start/pause is called before prepareAsync has finished. */
     private var prepared = false
 
+    /**
+     * Bumped on every start and stop.
+     *
+     * prepareAsync is asynchronous, so a callback from a player released during a swipe can
+     * arrive after the next page's player is already running. Comparing the generation captured
+     * at creation against the current one discards those late callbacks.
+     */
+    private var generation = 0L
+
     /** True while MediaPlayer owns the surface, meaning the canvas must be left alone. */
     val isActive: Boolean get() = player != null
 
@@ -44,6 +53,7 @@ class VideoPageController {
         }
         stop()
 
+        val thisGeneration = ++generation
         val created = runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(attributes)
@@ -53,6 +63,11 @@ class VideoPageController {
                 val volume = if (soundEnabled) 1f else 0f
                 setVolume(volume, volume)
                 setOnPreparedListener { ready ->
+                    // A stale callback from a player that has since been released.
+                    if (thisGeneration != generation) {
+                        runCatching { ready.release() }
+                        return@setOnPreparedListener
+                    }
                     prepared = true
                     // Center-crop, matching how still photos are drawn. Without this the video is
                     // stretched to the screen's aspect ratio, which mangles anything landscape.
@@ -64,6 +79,7 @@ class VideoPageController {
                     runCatching { ready.start() }
                 }
                 setOnErrorListener { _, what, extra ->
+                    if (thisGeneration != generation) return@setOnErrorListener true
                     Log.w(TAG, "Video error what=$what extra=$extra for ${file.name}")
                     // Qualified: a bare stop() here would hit MediaPlayer.stop(), leaving this
                     // controller believing it still owns the surface.
@@ -103,6 +119,8 @@ class VideoPageController {
         player = null
         playingPath = null
         prepared = false
+        // Invalidates any prepare still in flight for the player just released.
+        generation++
     }
 
     private companion object {

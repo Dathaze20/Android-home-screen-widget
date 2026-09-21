@@ -226,12 +226,15 @@ private fun Header(state: ConfigUiState, assignedCount: Int, onOpenSettings: () 
 
 /** One short line that says the only thing worth saying right now. */
 private fun statusLine(state: ConfigUiState, assignedCount: Int): String = when {
-    // Not an error: the launcher only reports its scroll position once you actually swipe.
+    // Samsung compatibility is a working state, not a half-finished setup, so it reports as one.
+    state.wallpaperActive && state.detectionMode == "TOUCH" ->
+        "Active · ${state.pageCount} screens · Samsung compatibility"
+
     state.wallpaperActive && !state.scrollingDetected ->
-        "Swipe across your home screen once to finish"
+        "Active · swipe your home screen to start tracking"
 
     state.wallpaperActive ->
-        "Active · ${state.pageCount} pages · tap a tile to change it"
+        "Active · ${state.pageCount} screens · tap a tile to change it"
 
     assignedCount == 0 ->
         "Pick your photos, then set it once and you are done"
@@ -469,8 +472,9 @@ private fun PrimaryAction(
 
     val hint = when {
         readyToApply -> "Your phone will ask where to put it — choose Home screen."
-        state.wallpaperActive && !state.scrollingDetected ->
-            "Still the same on every page? Tap the settings icon."
+        // Only worth saying while nothing is tracking yet; a working setup needs no nagging.
+        state.wallpaperActive && state.detectionMode != "TOUCH" && !state.scrollingDetected ->
+            "Still the same on every screen? Tap the settings icon."
 
         else -> null
     }

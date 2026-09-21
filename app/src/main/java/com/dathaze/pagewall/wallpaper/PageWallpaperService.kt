@@ -1,5 +1,9 @@
 package com.dathaze.pagewall.wallpaper
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.drawable.AnimatedImageDrawable
@@ -15,6 +19,8 @@ import android.view.SurfaceHolder
 import com.dathaze.pagewall.audio.PageAudioController
 import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.DetectionMode
+import com.dathaze.pagewall.data.GestureTracker
+import com.dathaze.pagewall.data.SyncPolicy
 import com.dathaze.pagewall.data.PageMath
 import com.dathaze.pagewall.data.SwipeDirection
 import com.dathaze.pagewall.data.SwipeMath
@@ -62,12 +68,27 @@ class PageWallpaperService : WallpaperService() {
         private var maxOffsetSeen = -1f
 
         // Touch fallback, for launchers whose offset never moves.
-        private var touchEvents = 0
-        private var touchDownX = 0f
-        private var touchDownY = 0f
-        private var touchDownAt = 0L
-        private var lastSwipeAt = 0L
+        private val gesture = GestureTracker()
+        private var rawTouchEvents = 0
+        private var recognisedSwipes = 0
+        private var lastSwipeName = ""
         private var lastTouchDiagnosticsWrite = 0L
+
+        /**
+         * Set when the display turned off while the wallpaper was hidden, so that unlocking is
+         * not mistaken for returning to the launcher from an app.
+         */
+        private var screenWasOff = false
+
+        private val screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                    screenWasOff = true
+                    // A press held when the screen went off must not complete later.
+                    gesture.reset()
+                }
+            }
+        }
         private var surfaceWidth = 0
         private var surfaceHeight = 0
 
@@ -126,13 +147,27 @@ class PageWallpaperService : WallpaperService() {
                 surfaceWidth = it.widthPixels
                 surfaceHeight = it.heightPixels
             }
-            currentPage = store.currentPage.coerceIn(0, store.pageCount - 1)
+            registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+
+            // A recreated engine cannot recover the launcher's page from a frozen offset, and the
+            // stored page may be arbitrarily stale, so touch tracking starts from the configured
+            // home screen instead of trusting it.
+            currentPage = SyncPolicy.pageOnEngineStart(
+                mode = currentDetectionMode(),
+                defaultHomePage = store.defaultHomePage,
+                storedPage = store.currentPage,
+                pageCount = store.pageCount,
+            )
+            store.currentPage = currentPage
+            store.displayedPage = currentPage
         }
 
         override fun onDestroy() {
             super.onDestroy()
             handler.removeCallbacksAndMessages(null)
             store.unregisterListener(this)
+            runCatching { unregisterReceiver(screenReceiver) }
+            gesture.reset()
             stopAnimation()
             renderer.clearCaches()
             video.stop()
@@ -143,16 +178,46 @@ class PageWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
             if (visible) {
+                if (!isPreview) syncOnBecomingVisible()
                 render()
                 if (isPreview) handler.postDelayed(previewRunnable, PREVIEW_INTERVAL_MS)
                 playAudioForCurrentPage()
             } else {
                 handler.removeCallbacksAndMessages(null)
                 framePending = false
+                // A press in progress must never complete against a release that arrives after
+                // the wallpaper has been away.
+                gesture.reset()
                 stopAnimation()
                 // Keep the surface but stop burning battery on frames nobody can see.
                 video.pause()
                 audio.stop()
+            }
+        }
+
+        /**
+         * Catches up with a page change that happened while the wallpaper could not see it.
+         *
+         * Returning to the launcher from an app can land on the launcher's own home page without
+         * any swipe the wallpaper could observe. Android offers no non-invasive way to tell the
+         * Home button from Back, so this is driven by a setting rather than a guess, and skipped
+         * entirely when the display merely turned off and on.
+         */
+        private fun syncOnBecomingVisible() {
+            val wasOff = screenWasOff
+            screenWasOff = false
+
+            val target = SyncPolicy.pageOnVisible(
+                mode = currentDetectionMode(),
+                syncOnReturnHome = store.syncOnReturnHome,
+                screenWasOff = wasOff,
+                defaultHomePage = store.defaultHomePage,
+                currentPage = currentPage,
+                pageCount = store.pageCount,
+            )
+            if (target != currentPage) {
+                // No crossfade: the correct picture should already be there as the launcher appears.
+                switchToPage(target, animate = false, playAudio = false)
             }
         }
 
@@ -178,6 +243,7 @@ class PageWallpaperService : WallpaperService() {
             this.visible = false
             handler.removeCallbacksAndMessages(null)
             framePending = false
+            gesture.reset()
             stopAnimation()
             // The surface is going away, so MediaPlayer must let go of it now, not lazily.
             video.stop()
@@ -283,45 +349,67 @@ class PageWallpaperService : WallpaperService() {
             super.onTouchEvent(event)
             if (isPreview) return
 
-            touchEvents++
+            // Counted for every event, whatever comes of it: a launcher forwarding touches that
+            // never amount to a swipe has to look different from one forwarding nothing at all.
+            rawTouchEvents++
+
             val mode = currentDetectionMode()
             if (mode != DetectionMode.TOUCH) {
-                recordTouchDiagnostics(mode)
+                gesture.reset()
+                recordTouchDiagnostics(mode, force = false)
                 return
             }
 
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    touchDownX = event.x
-                    touchDownY = event.y
-                    touchDownAt = SystemClock.uptimeMillis()
-                }
+                MotionEvent.ACTION_DOWN ->
+                    gesture.onDown(event.x, event.y, SystemClock.uptimeMillis())
+
+                // A pinch or a two-finger launcher gesture is not a page swipe.
+                MotionEvent.ACTION_POINTER_DOWN -> gesture.onExtraPointer()
 
                 MotionEvent.ACTION_UP -> {
-                    val now = SystemClock.uptimeMillis()
-                    // One gesture must not be able to step two pages.
-                    if (now - lastSwipeAt < SwipeMath.COOLDOWN_MS) return
-                    if (touchDownAt == 0L) return
-
-                    val direction = SwipeMath.detect(
-                        dx = event.x - touchDownX,
-                        dy = event.y - touchDownY,
-                        durationMs = now - touchDownAt,
+                    val direction = gesture.onUp(
+                        x = event.x,
+                        y = event.y,
+                        timeMs = SystemClock.uptimeMillis(),
                         screenWidth = surfaceWidth,
                     )
-                    touchDownAt = 0L
-                    if (direction == SwipeDirection.NONE) return
-
-                    lastSwipeAt = now
-                    val page = SwipeMath.nextPage(currentPage, direction, store.pageCount)
-                    store.recordTouch(touchEvents, direction.name, mode)
-                    if (page != currentPage) {
-                        switchToPage(page, animate = true, playAudio = true)
+                    if (direction != SwipeDirection.NONE) {
+                        recognisedSwipes++
+                        lastSwipeName = direction.name
+                        val page = SwipeMath.nextPage(currentPage, direction, store.pageCount)
+                        if (page != currentPage) {
+                            switchToPage(page, animate = true, playAudio = true)
+                        }
+                        recordTouchDiagnostics(mode, force = true)
+                        return
                     }
                 }
 
-                MotionEvent.ACTION_CANCEL -> touchDownAt = 0L
+                MotionEvent.ACTION_CANCEL -> gesture.reset()
             }
+
+            recordTouchDiagnostics(mode, force = false)
+        }
+
+        /**
+         * Persists the touch counters, throttled.
+         *
+         * Writing on every event would hammer SharedPreferences during a swipe, but writing only
+         * when a swipe is recognised left the panel reading zero on a launcher that forwards
+         * touches which never qualify — the exact case worth being able to see.
+         */
+        private fun recordTouchDiagnostics(mode: DetectionMode, force: Boolean) {
+            val now = SystemClock.uptimeMillis()
+            if (!force && now - lastTouchDiagnosticsWrite <= DIAGNOSTICS_INTERVAL_MS) return
+            lastTouchDiagnosticsWrite = now
+            store.recordTouch(
+                rawEvents = rawTouchEvents,
+                swipes = recognisedSwipes,
+                lastSwipe = lastSwipeName,
+                mode = mode,
+                displayedPage = currentPage,
+            )
         }
 
         /** Offsets when they move, touch when they do not, or whatever the user forced. */
@@ -365,7 +453,11 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_LAST_STEP,
                 PageStore.KEY_MIN_SEEN,
                 PageStore.KEY_MAX_SEEN,
-                PageStore.KEY_COMPUTED_PAGE -> return
+                PageStore.KEY_COMPUTED_PAGE,
+                PageStore.KEY_TOUCH_RAW,
+                PageStore.KEY_SWIPES,
+                PageStore.KEY_DISPLAYED_PAGE,
+                PageStore.KEY_SYNC_PAGE -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     cache.clear()
@@ -377,18 +469,27 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_PAGE_COUNT,
                 PageStore.KEY_CALIBRATION_MIN,
                 PageStore.KEY_CALIBRATION_MAX -> {
-                    // A changed page count or calibration remaps the offset we are sitting on,
-                    // so recompute from the last reported offset instead of waiting for a swipe.
-                    currentPage = if (lastReportedOffset.isNaN()) {
-                        currentPage.coerceIn(0, store.pageCount - 1)
-                    } else {
-                        PageMath.pageFor(
-                            xOffset = lastReportedOffset,
-                            pageCount = store.pageCount,
-                            calibrationMin = store.calibrationMin,
-                            calibrationMax = store.calibrationMax,
-                        )
+                    // Under touch tracking the offset is a frozen constant, so recomputing from
+                    // it would teleport to whatever that constant maps to — the middle page, on a
+                    // launcher reporting 0.5. The tracked page is kept and merely clamped.
+                    currentPage = SyncPolicy.pageOnPageCountChange(
+                        mode = currentDetectionMode(),
+                        currentPage = currentPage,
+                        pageCount = store.pageCount,
+                        lastOffset = if (lastReportedOffset.isNaN()) -1f else lastReportedOffset,
+                        calibrationMin = store.calibrationMin,
+                        calibrationMax = store.calibrationMax,
+                    )
+                    store.currentPage = currentPage
+                }
+
+                // The escape hatch: the app says which screen the launcher is really on.
+                PageStore.KEY_SYNC_NONCE -> {
+                    val target = store.manualSyncPage.coerceIn(0, store.pageCount - 1)
+                    if (target != currentPage) {
+                        switchToPage(target, animate = false, playAudio = true)
                     }
+                    return
                 }
                 PageStore.KEY_PHOTO_FIT -> renderer.clearCaches()
                 PageStore.KEY_MOTION, PageStore.KEY_VIDEO_SOUND -> {
@@ -403,6 +504,8 @@ class PageWallpaperService : WallpaperService() {
 
         private fun switchToPage(page: Int, animate: Boolean, playAudio: Boolean) {
             val next = store.page(page)
+            // animate = false is a correction rather than a navigation: the launcher is already
+            // showing a different screen, so the picture should catch up instantly.
             // A video takes over the whole surface, so fading into or out of one is not possible.
             val canFade = animate &&
                 store.crossfadeMillis > 0 &&
@@ -417,6 +520,7 @@ class PageWallpaperService : WallpaperService() {
             // leave the real wallpaper starting on whatever page the preview happened to stop on.
             if (!isPreview) {
                 store.currentPage = page
+                store.displayedPage = page
                 PageWidgetProvider.notifyPageChanged(this@PageWallpaperService, page)
             }
 

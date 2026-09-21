@@ -97,8 +97,8 @@ object MediaImporter {
             }
         }.getOrNull() ?: return ImportResult.Failure("Could not decode that photo")
 
-        val rotation = readRotation(context, uri)
-        val oriented = if (rotation == 0) decoded else rotate(decoded, rotation)
+        val orientation = readOrientation(context, uri)
+        val oriented = if (orientation.isIdentity) decoded else orient(decoded, orientation)
 
         // Files are named by slot with a timestamp, so a replacement never collides with a bitmap
         // the engine still has open from the previous picture.
@@ -197,12 +197,23 @@ object MediaImporter {
         } ?: throw IllegalStateException("no stream for $uri")
     }.onFailure { Log.w(TAG, "Copy failed for $uri", it) }.isSuccess
 
-    private fun writeJpeg(bitmap: Bitmap, target: File, quality: Int): Boolean = runCatching {
-        FileOutputStream(target).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out) }
-    }.onFailure {
-        Log.w(TAG, "Could not write ${target.name}", it)
-        target.delete()
-    }.isSuccess
+    private fun writeJpeg(bitmap: Bitmap, target: File, quality: Int): Boolean {
+        // compress() reports failure by returning false, not by throwing, so the return value has
+        // to be checked: otherwise a half-written file counts as a successful import.
+        val compressed = runCatching {
+            FileOutputStream(target).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            }
+        }.onFailure { Log.w(TAG, "Could not write ${target.name}", it) }
+            .getOrDefault(false)
+
+        if (!compressed || target.length() == 0L) {
+            Log.w(TAG, "JPEG encode failed for ${target.name}")
+            target.delete()
+            return false
+        }
+        return true
+    }
 
     private fun extensionFor(context: Context, uri: Uri, mime: String?): String? {
         queryDisplayName(context, uri)?.substringAfterLast('.', "")?.takeIf { it.isNotEmpty() }
@@ -229,22 +240,41 @@ object MediaImporter {
         }
     }.getOrNull()
 
-    private fun readRotation(context: Context, uri: Uri): Int = runCatching {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            when (ExifInterface(stream).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
-            }
-        } ?: 0
-    }.getOrDefault(0)
+    /**
+     * The EXIF orientation as a rotation plus a mirror.
+     *
+     * Front-camera shots and edited photos carry the flipped and transposed orientations, which
+     * a rotation alone cannot undo: handling only 90/180/270 left those importing mirrored.
+     */
+    private data class Orientation(val degrees: Int, val mirrored: Boolean) {
+        val isIdentity: Boolean get() = degrees == 0 && !mirrored
+    }
 
-    private fun rotate(source: Bitmap, degrees: Int): Bitmap {
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+    private fun readOrientation(context: Context, uri: Uri): Orientation = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            when (
+                ExifInterface(stream).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            ) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> Orientation(90, false)
+                ExifInterface.ORIENTATION_ROTATE_180 -> Orientation(180, false)
+                ExifInterface.ORIENTATION_ROTATE_270 -> Orientation(270, false)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> Orientation(0, true)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> Orientation(180, true)
+                ExifInterface.ORIENTATION_TRANSPOSE -> Orientation(90, true)
+                ExifInterface.ORIENTATION_TRANSVERSE -> Orientation(270, true)
+                else -> Orientation(0, false)
+            }
+        } ?: Orientation(0, false)
+    }.getOrDefault(Orientation(0, false))
+
+    private fun orient(source: Bitmap, orientation: Orientation): Bitmap {
+        val matrix = Matrix().apply {
+            if (orientation.degrees != 0) postRotate(orientation.degrees.toFloat())
+            if (orientation.mirrored) postScale(-1f, 1f)
+        }
         return runCatching {
             Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
         }.getOrDefault(source)

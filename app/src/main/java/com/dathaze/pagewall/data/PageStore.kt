@@ -171,6 +171,63 @@ class PageStore(context: Context) {
         }.getOrDefault(TouchCompatibility.AUTO)
         set(value) = prefs.edit().putString(KEY_TOUCH_MODE, value.name).apply()
 
+    /**
+     * The page the launcher treats as its main home screen.
+     *
+     * Android never reports this, so it is the user's answer, used whenever the wallpaper has to
+     * resync without having observed a swipe.
+     */
+    var defaultHomePage: Int
+        get() = prefs.getInt(KEY_DEFAULT_HOME, 0).coerceIn(0, MAX_PAGES - 1)
+        set(value) = prefs.edit().putInt(KEY_DEFAULT_HOME, value.coerceIn(0, MAX_PAGES - 1)).apply()
+
+    /**
+     * Whether becoming visible again after an app should snap to [defaultHomePage].
+     *
+     * On by default because touch tracking cannot see the launcher jump home by itself. Under
+     * offset tracking it is irrelevant: the launcher reports the real page immediately.
+     */
+    var syncOnReturnHome: Boolean
+        get() = prefs.getBoolean(KEY_SYNC_HOME, true)
+        set(value) = prefs.edit().putBoolean(KEY_SYNC_HOME, value).apply()
+
+    /** Bumped by the app to tell the engine to jump to [manualSyncPage]. */
+    var manualSyncNonce: Long
+        get() = prefs.getLong(KEY_SYNC_NONCE, 0L)
+        private set(value) = prefs.edit().putLong(KEY_SYNC_NONCE, value).apply()
+
+    var manualSyncPage: Int
+        get() = prefs.getInt(KEY_SYNC_PAGE, 0)
+        private set(value) = prefs.edit().putInt(KEY_SYNC_PAGE, value).apply()
+
+    /** The escape hatch: "the launcher is on this screen, catch up". */
+    fun requestManualSync(page: Int) {
+        prefs.edit()
+            .putInt(KEY_SYNC_PAGE, page.coerceIn(0, MAX_PAGES - 1))
+            .putLong(KEY_SYNC_NONCE, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** Raw touch events forwarded by the launcher, whether or not they amounted to a swipe. */
+    var touchEventCountRaw: Int
+        get() = prefs.getInt(KEY_TOUCH_RAW, 0)
+        set(value) = prefs.edit().putInt(KEY_TOUCH_RAW, value).apply()
+
+    /** Gestures that were recognised as page swipes. */
+    var recognisedSwipeCount: Int
+        get() = prefs.getInt(KEY_SWIPES, 0)
+        set(value) = prefs.edit().putInt(KEY_SWIPES, value).apply()
+
+    /** The page the wallpaper is actually drawing, as opposed to any offset-derived guess. */
+    var displayedPage: Int
+        get() = prefs.getInt(KEY_DISPLAYED_PAGE, 0)
+        set(value) = prefs.edit().putInt(KEY_DISPLAYED_PAGE, value).apply()
+
+    /** Whether the onboarding flow has been completed. */
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ONBOARDED, value).apply()
+
     /** How many raw touch events the launcher has forwarded to the wallpaper. */
     var touchEventCount: Int
         get() = prefs.getInt(KEY_TOUCH_EVENTS, 0)
@@ -186,12 +243,27 @@ class PageStore(context: Context) {
         get() = prefs.getString(KEY_DETECTION_MODE, DetectionMode.OFFSET.name) ?: DetectionMode.OFFSET.name
         set(value) = prefs.edit().putString(KEY_DETECTION_MODE, value).apply()
 
-    /** Records the touch fallback's diagnostics in a single write. */
-    fun recordTouch(count: Int, swipe: String, mode: DetectionMode) {
+    /**
+     * Records the touch fallback's diagnostics in a single write.
+     *
+     * Raw events and recognised swipes are separate numbers: a launcher forwarding touches that
+     * never amount to a swipe looks identical to one forwarding nothing, unless both are shown.
+     */
+    fun recordTouch(
+        rawEvents: Int,
+        swipes: Int,
+        lastSwipe: String,
+        mode: DetectionMode,
+        displayedPage: Int,
+    ) {
         prefs.edit()
-            .putInt(KEY_TOUCH_EVENTS, count)
-            .putString(KEY_LAST_SWIPE, swipe)
+            .putInt(KEY_TOUCH_RAW, rawEvents)
+            // Kept in step with the old key so nothing reading it sees a stale value.
+            .putInt(KEY_TOUCH_EVENTS, rawEvents)
+            .putInt(KEY_SWIPES, swipes)
+            .putString(KEY_LAST_SWIPE, lastSwipe)
             .putString(KEY_DETECTION_MODE, mode.name)
+            .putInt(KEY_DISPLAYED_PAGE, displayedPage)
             .apply()
     }
 
@@ -227,6 +299,8 @@ class PageStore(context: Context) {
             .remove(KEY_TOUCH_EVENTS)
             .remove(KEY_LAST_SWIPE)
             .remove(KEY_DETECTION_MODE)
+            .remove(KEY_TOUCH_RAW)
+            .remove(KEY_SWIPES)
             .apply()
     }
 
@@ -373,6 +447,14 @@ class PageStore(context: Context) {
         const val KEY_TOUCH_EVENTS = "touch_events"
         const val KEY_LAST_SWIPE = "last_swipe"
         const val KEY_DETECTION_MODE = "detection_mode"
+        const val KEY_DEFAULT_HOME = "default_home_page"
+        const val KEY_SYNC_HOME = "sync_on_return_home"
+        const val KEY_SYNC_PAGE = "manual_sync_page"
+        const val KEY_SYNC_NONCE = "manual_sync_nonce"
+        const val KEY_TOUCH_RAW = "touch_raw"
+        const val KEY_SWIPES = "recognised_swipes"
+        const val KEY_DISPLAYED_PAGE = "displayed_page"
+        const val KEY_ONBOARDED = "onboarding_done"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_PARALLAX = "parallax"
         const val KEY_MOTION = "motion"

@@ -88,6 +88,9 @@ class ConfigActivity : ComponentActivity() {
                         onResetDiagnostics = viewModel::resetDiagnostics,
                         onPhotoFitChange = viewModel::setPhotoFit,
                         onTouchCompatibilityChange = viewModel::setTouchCompatibility,
+                        onDefaultHomePageChange = viewModel::setDefaultHomePage,
+                        onSyncOnReturnHomeChange = viewModel::setSyncOnReturnHome,
+                        onSyncWallpaperTo = viewModel::syncWallpaperTo,
                     )
                 }
             }

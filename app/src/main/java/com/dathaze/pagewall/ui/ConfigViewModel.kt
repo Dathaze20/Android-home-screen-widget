@@ -62,6 +62,15 @@ data class ConfigUiState(
     val touchEventCount: Int = 0,
     val lastSwipe: String = "",
     val photoFit: PhotoFit = PhotoFit.FULL_IMAGE,
+    /** The screen the launcher treats as home, used to resync without an observed swipe. */
+    val defaultHomePage: Int = 0,
+    val syncOnReturnHome: Boolean = true,
+    /** Raw touch events forwarded by the launcher, whether or not they became swipes. */
+    val touchEventsRaw: Int = 0,
+    val recognisedSwipes: Int = 0,
+    /** The page the wallpaper is actually drawing, as opposed to any offset-derived guess. */
+    val displayedPage: Int = 0,
+    val onboardingDone: Boolean = false,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -120,6 +129,12 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             touchEventCount = store.touchEventCount,
             lastSwipe = store.lastSwipe,
             photoFit = store.photoFit,
+            defaultHomePage = store.defaultHomePage,
+            syncOnReturnHome = store.syncOnReturnHome,
+            touchEventsRaw = store.touchEventCountRaw,
+            recognisedSwipes = store.recognisedSwipeCount,
+            displayedPage = store.displayedPage,
+            onboardingDone = store.onboardingDone,
         )
     }
 
@@ -264,6 +279,33 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setParallax(enabled: Boolean) {
         store.parallaxEnabled = enabled
+        afterChange()
+    }
+
+    fun setDefaultHomePage(page: Int) {
+        store.defaultHomePage = page
+        afterChange()
+    }
+
+    fun setSyncOnReturnHome(enabled: Boolean) {
+        store.syncOnReturnHome = enabled
+        afterChange()
+    }
+
+    /** The escape hatch: tell the wallpaper which screen the launcher is actually on. */
+    fun syncWallpaperTo(page: Int) {
+        store.requestManualSync(page)
+        uiState = uiState.copy(noticeMessage = "Wallpaper set to screen ${page + 1}")
+        afterChange()
+    }
+
+    fun completeOnboarding() {
+        store.onboardingDone = true
+        afterChange()
+    }
+
+    fun restartOnboarding() {
+        store.onboardingDone = false
         afterChange()
     }
 

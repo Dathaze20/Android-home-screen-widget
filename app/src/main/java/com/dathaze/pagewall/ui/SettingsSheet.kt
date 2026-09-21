@@ -1,6 +1,8 @@
 package com.dathaze.pagewall.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,6 +57,9 @@ fun SettingsSheet(
     onResetDiagnostics: () -> Unit,
     onPhotoFitChange: (PhotoFit) -> Unit,
     onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
+    onDefaultHomePageChange: (Int) -> Unit,
+    onSyncOnReturnHomeChange: (Boolean) -> Unit,
+    onSyncWallpaperTo: (Int) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -79,6 +84,10 @@ fun SettingsSheet(
             }
 
             PageCountRow(state, onPageCountChange, onResetPageCount)
+
+            HorizontalDivider()
+
+            HomeSyncRow(state, onDefaultHomePageChange, onSyncOnReturnHomeChange, onSyncWallpaperTo)
 
             HorizontalDivider()
 
@@ -237,17 +246,19 @@ private fun LauncherReport(
 
         // Plain numbers, so a screenshot of this panel is enough to diagnose the phone.
         Text(
-            text = "xOffset: ${fmt(state.lastOffset)}\n" +
+            text = "tracking mode: ${if (state.detectionMode == "TOUCH") "Samsung touch" else "Offset"}\n" +
+                "actual wallpaper screen: ${state.displayedPage + 1}\n" +
+                "touch events received: ${state.touchEventsRaw}\n" +
+                "recognised swipes: ${state.recognisedSwipes}\n" +
+                "last recognised swipe: ${state.lastSwipe.ifEmpty { "\u2014" }}\n" +
+                "default home screen: ${state.defaultHomePage + 1}\n" +
+                "xOffset: ${fmt(state.lastOffset)}\n" +
                 "xOffsetStep: ${fmt(state.lastOffsetStep)}\n" +
                 "range seen: ${fmt(state.observedMinOffset)} → ${fmt(state.observedMaxOffset)}\n" +
-                "pages (manual): ${state.pageCount}\n" +
-                "pages (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
-                "current page: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "—"}\n" +
-                "picture shown: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "—"}\n" +
-                "reports: ${state.offsetEventCount}\n" +
-                "detection mode: ${if (state.detectionMode == "TOUCH") "Samsung compatibility" else "Offset"}\n" +
-                "touch reports: ${state.touchEventCount}\n" +
-                "last swipe: ${state.lastSwipe.ifEmpty { "\u2014" }}\n" +
+                "offset reports: ${state.offsetEventCount}\n" +
+                "offset-derived screen: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "\u2014"}\n" +
+                "screens (manual): ${state.pageCount}\n" +
+                "screens (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
                 "calibration: ${if (state.isCalibrated) "${fmt(state.calibrationMin)} → ${fmt(state.calibrationMax)}" else "off"}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -286,6 +297,62 @@ private fun fmt(value: Float): String =
  * A landscape picture on a tall phone cannot be complete, uncropped, undistorted and reach all
  * four corners at once — the shapes differ, so one of those has to give.
  */
+/**
+ * Everything to do with the launcher moving without the wallpaper seeing it.
+ *
+ * Touch tracking only learns about page changes it observes as gestures, so returning from an
+ * app, a restarted engine and any launcher behaviour that cannot be observed need an answer here.
+ */
+@Composable
+private fun HomeSyncRow(
+    state: ConfigUiState,
+    onDefaultHomePageChange: (Int) -> Unit,
+    onSyncOnReturnHomeChange: (Boolean) -> Unit,
+    onSyncWallpaperTo: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Default Home screen", fontWeight = FontWeight.SemiBold)
+        Text(
+            "The screen your phone returns to when you press Home. Android never tells an app " +
+                "which one that is, so it has to be set here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ScreenPicker(state.pageCount, state.defaultHomePage, onDefaultHomePageChange)
+
+        SettingSwitch(
+            title = "Sync when returning Home",
+            subtitle = "Jump to that screen when you come back from an app. Locking and " +
+                "unlocking never triggers it \u2014 your phone has not moved.",
+            checked = state.syncOnReturnHome,
+            onCheckedChange = onSyncOnReturnHomeChange,
+        )
+
+        Text("Sync wallpaper now", fontWeight = FontWeight.SemiBold)
+        Text(
+            "Out of step? Tap the screen you are actually standing on.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ScreenPicker(state.pageCount, state.displayedPage, onSyncWallpaperTo)
+    }
+}
+
+/** A row of screen numbers, wrapping so a high screen count still fits. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScreenPicker(pageCount: Int, selected: Int, onSelect: (Int) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(pageCount) { index ->
+            FilterChip(
+                selected = selected == index,
+                onClick = { onSelect(index) },
+                label = { Text("${index + 1}", maxLines = 1) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun PhotoFitRow(state: ConfigUiState, onPhotoFitChange: (PhotoFit) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

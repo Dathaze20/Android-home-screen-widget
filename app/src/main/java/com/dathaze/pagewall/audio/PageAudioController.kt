@@ -33,17 +33,32 @@ class PageAudioController(context: Context) {
     private var focusRequest: AudioFocusRequest? = null
     private var playingFile: String? = null
 
+    /** The volume the user chose, so it can be restored after a duck. */
+    private var requestedVolume = 1f
+
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> stop()
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> player?.setVolume(DUCKED, DUCKED)
+            // Without this the track stays ducked forever after the interruption ends.
+            AudioManager.AUDIOFOCUS_GAIN ->
+                player?.setVolume(requestedVolume, requestedVolume)
         }
     }
 
     /** Starts [file] unless it is already the playing track or another app owns the speaker. */
     fun play(file: File, volume: Float, looping: Boolean) {
-        if (playingFile == file.absolutePath && player?.isPlaying == true) return
+        requestedVolume = volume
+        // Already playing this track: apply the new settings to the live player rather than
+        // returning early and leaving a stale volume or loop flag in place.
+        if (playingFile == file.absolutePath && player?.isPlaying == true) {
+            runCatching {
+                player?.setVolume(volume, volume)
+                player?.isLooping = looping
+            }
+            return
+        }
         if (isSomeoneElsePlaying()) return
 
         stop()
