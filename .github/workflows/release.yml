@@ -168,6 +168,79 @@ jobs:
              "dist/page-wallpaper-personal-${{ steps.version.outputs.tag }}.apk"
           ls -l dist
 
+      # Everything below is skipped until the four secrets exist, so the personal release keeps
+      # working exactly as it does now and the public build simply is not produced yet.
+      - name: Is the public signing key available
+        id: key
+        env:
+          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$B64" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::public signing key present - the public APK will be built"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no public signing key - publishing the personal build only"
+          fi
+
+      - name: Build and verify the public APK
+        if: steps.key.outputs.available == 'true'
+        env:
+          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -uo pipefail
+          fail=0
+          note() { echo "::notice::$*"; }
+          err()  { echo "::error::$*"; fail=1; }
+
+          # Written outside the workspace and deleted below, so it cannot be picked up by an
+          # upload step or left behind in the build directory.
+          store="$RUNNER_TEMP/release.jks"
+          printf '%s' "$B64" | base64 -d > "$store" || { echo "::error::keystore secret is not valid base64"; exit 1; }
+          export RELEASE_KEYSTORE_PATH="$store"
+
+          ./gradlew assemblePublicRelease --no-daemon 2>&1 | tee -a compile.log
+          apk="app/build/outputs/apk/public/release/app-public-release.apk"
+          if [ ! -f "$apk" ]; then
+            rm -f "$store"
+            echo "::error::public release APK was not produced"
+            exit 1
+          fi
+
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          certs="$("$tools/apksigner" verify --print-certs "$apk" 2>&1)" \
+            || err "the public APK is not signed"
+          digest="$(printf '%s\n' "$certs" | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+          debugdigest="$(keytool -list -v -keystore app/debug.keystore -storepass android \
+            -alias androiddebugkey 2>/dev/null \
+            | grep -iE 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
+          note "public APK signer sha256 = ${digest:-none}"
+          [ -n "$digest" ] || err "the public APK has no signing certificate"
+          # The whole point of the split. If these ever match, the public build is being handed
+          # the key that is published in this repository.
+          [ "$digest" != "$debugdigest" ] \
+            || err "the public APK is signed with the PUBLIC debug key - refusing to publish it"
+
+          pkg="$("$tools/aapt2" dump packagename "$apk" 2>/dev/null | tr -d '\r\n')"
+          note "public applicationId = ${pkg:-unknown}"
+          [ "$pkg" = "io.github.dathaze20.pagewallpaper" ] \
+            || err "public applicationId is '$pkg'"
+
+          code="$("$tools/aapt2" dump badging "$apk" 2>/dev/null | grep -oP "versionCode='\\K[0-9]+" | head -1)"
+          [ "$code" = "${{ steps.version.outputs.code }}" ] \
+            || err "public versionCode is '$code', expected ${{ steps.version.outputs.code }}"
+
+          cp "$apk" "dist/page-wallpaper-public-${{ steps.version.outputs.tag }}.apk"
+          ls -l dist
+
+          rm -f "$store"
+          exit $fail
+
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
