@@ -391,6 +391,7 @@ private fun LauncherReport(
                 "range seen: ${fmt(state.observedMinOffset)} \u2192 ${fmt(state.observedMaxOffset)}\n" +
                 "offset reports: ${state.offsetEventCount}\n" +
                 "reports with no finger down: ${state.idleOffsetReports}\n" +
+                "home presses seen: ${state.homeKeyEvents}\n" +
                 "offset-derived screen: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "\u2014"}\n" +
                 "screens (manual): ${state.pageCount}\n" +
                 "screens (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
@@ -511,17 +512,20 @@ private fun HomeSyncRow(
             onCheckedChange = onFollowHomeJumpChange,
         )
         Text(
-            "Launcher moved on its own: ${state.idleOffsetReports} times" +
-                if (state.idleOffsetReports == 0) {
-                    " \u2014 nothing yet. Press Home a few times from another screen, then " +
-                        "reopen this. If it stays at zero, your launcher reports nothing and " +
-                        "this cannot work."
-                } else {
-                    ""
-                },
+            "Home presses seen: ${state.homeKeyEvents}  ·  " +
+                "launcher moved on its own: ${state.idleOffsetReports}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (state.homeKeyEvents == 0 && state.idleOffsetReports == 0) {
+            Text(
+                "Both at zero. Press Home a few times from another screen, then reopen this. " +
+                    "If they stay at zero, this phone tells the wallpaper nothing about the " +
+                    "Home button and no setting here can change that.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Text("Sync wallpaper now", fontWeight = FontWeight.SemiBold)
         Text(

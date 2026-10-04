@@ -201,6 +201,17 @@ class PageStore(context: Context) {
         get() = prefs.getBoolean(KEY_HOME_JUMP, false)
         set(value) = prefs.edit().putBoolean(KEY_HOME_JUMP, value).apply()
 
+    /**
+     * Home-button presses the system has actually told the wallpaper about.
+     *
+     * The decisive reading for whether following the Home button can work at all on a phone: if
+     * this stays at zero after pressing Home, the broadcast is not reaching us and no setting
+     * will change that.
+     */
+    var homeKeyEvents: Int
+        get() = prefs.getInt(KEY_HOME_KEYS, 0)
+        set(value) = prefs.edit().putInt(KEY_HOME_KEYS, value).apply()
+
     /** Offset reports that arrived while no finger had touched the screen for a while. */
     var idleOffsetReports: Int
         get() = prefs.getInt(KEY_IDLE_OFFSETS, 0)
@@ -317,6 +328,7 @@ class PageStore(context: Context) {
             .remove(KEY_TOUCH_RAW)
             .remove(KEY_SWIPES)
             .remove(KEY_IDLE_OFFSETS)
+            .remove(KEY_HOME_KEYS)
             .apply()
     }
 
@@ -482,6 +494,7 @@ class PageStore(context: Context) {
         const val KEY_SAW_OFFSETS = "saw_offsets"
         const val KEY_HOME_JUMP = "follow_home_jump"
         const val KEY_IDLE_OFFSETS = "idle_offset_reports"
+        const val KEY_HOME_KEYS = "home_key_events"
 
         const val MIN_PAGES = 1
         const val MAX_PAGES = 12
