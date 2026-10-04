@@ -86,34 +86,12 @@ class PageWallpaperService : WallpaperService() {
          */
         private var screenWasOff = false
 
-        /** Home presses actually seen, so the settings screen can say whether this phone sends them. */
-        private var homeKeyEvents = 0
-
         private val screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> {
-                        screenWasOff = true
-                        // A press held when the screen went off must not complete later.
-                        gesture.reset()
-                    }
-
-                    // The Home button, told to us directly rather than guessed at.
-                    //
-                    // The system broadcasts this when it dismisses what is on top, and the
-                    // "reason" extra says what did the dismissing. "homekey" is the Home button
-                    // itself, and it arrives whether or not the launcher was already showing —
-                    // which is exactly the case the wallpaper has no other way to notice, because
-                    // it never becomes invisible and no swipe happens.
-                    Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> {
-                        if (intent.getStringExtra("reason") != REASON_HOME_KEY) return
-                        // The wallpaper picker's preview engine gets this broadcast too, and
-                        // counting its presses would make the reading below lie.
-                        if (isPreview) return
-                        homeKeyEvents++
-                        store.homeKeyEvents = homeKeyEvents
-                        onHomePressed()
-                    }
+                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                    screenWasOff = true
+                    // A press held when the screen went off must not complete later.
+                    gesture.reset()
                 }
             }
         }
@@ -189,7 +167,6 @@ class PageWallpaperService : WallpaperService() {
             // Seeded, not left at zero: an engine that has never been touched would otherwise
             // count its very first offset reports as "the launcher moved by itself".
             lastTouchAt = SystemClock.uptimeMillis()
-            homeKeyEvents = store.homeKeyEvents
             // A clip that will not play must not leave the surface in nobody's hands: come out of
             // video mode and draw its poster frame on the canvas instead.
             video.onPlaybackFailed = { path ->
@@ -203,12 +180,7 @@ class PageWallpaperService : WallpaperService() {
                 surfaceWidth = it.widthPixels
                 surfaceHeight = it.heightPixels
             }
-            registerReceiver(
-                screenReceiver,
-                IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
-                    addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
-                },
-            )
+            registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
 
             // A recreated engine cannot recover the launcher's page from a frozen offset, and the
             // stored page may be arbitrarily stale, so touch tracking starts from the configured
@@ -281,22 +253,6 @@ class PageWallpaperService : WallpaperService() {
                 // No crossfade: the correct picture should already be there as the launcher appears.
                 switchToPage(target, animate = false, playAudio = false)
             }
-        }
-
-        /**
-         * The Home button was pressed while the wallpaper was on screen.
-         *
-         * Under offset tracking the launcher reports its real page a frame later and corrects
-         * anything done here, so this only matters for touch tracking, where nothing else ever
-         * says the launcher moved. Governed by the same setting as returning from an app, because
-         * to the person holding the phone they are the same thing: going home.
-         */
-        private fun onHomePressed() {
-            if (!visible || isPreview) return
-            if (!store.syncOnReturnHome) return
-            if (currentDetectionMode() != DetectionMode.TOUCH) return
-            val target = store.defaultHomePage.coerceIn(0, store.pageCount - 1)
-            if (target != currentPage) switchToPage(target, animate = true, playAudio = false)
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -563,7 +519,6 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_LAST_SWIPE,
                 PageStore.KEY_DETECTION_MODE,
                 PageStore.KEY_IDLE_OFFSETS,
-                PageStore.KEY_HOME_KEYS,
                 PageStore.KEY_SYNC_PAGE -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
@@ -801,9 +756,6 @@ class PageWallpaperService : WallpaperService() {
         const val PREVIEW_INTERVAL_MS = 2_500L
         const val OFFSET_EPSILON = 0.001f
         const val DIAGNOSTICS_INTERVAL_MS = 400L
-
-        /** The "reason" the system puts on ACTION_CLOSE_SYSTEM_DIALOGS for the Home button. */
-        const val REASON_HOME_KEY = "homekey"
         const val CENTER_PAN = 0.5f
     }
 }
