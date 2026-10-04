@@ -120,9 +120,15 @@ jobs:
           note "applicationId = ${pkg:-unknown}"
           [ "$pkg" = "com.dathaze.pagewall" ] || err "applicationId is '$pkg', expected com.dathaze.pagewall"
 
-          tooling="$(unzip -l "$apk" | grep -ci 'ui-tooling' || true)"
-          note "ui-tooling entries = $tooling"
-          [ "$tooling" = "0" ] || err "Compose debug tooling is packaged in the release APK"
+          # AndroidX drops a META-INF/<group>_<artifact>.version marker per library, so this
+          # names what is actually packaged. Matched precisely: ui-tooling-preview is only the
+          # @Preview annotation and is an ordinary dependency, while ui-tooling and
+          # ui-tooling-data are the layout inspector and have no business in a release.
+          found="$(unzip -l "$apk" | grep -oiE '[A-Za-z0-9_.-]*ui-tooling[A-Za-z0-9_.-]*' \
+            | sort -u | tr '\n' ' ')"
+          note "ui-tooling entries: ${found:-none}"
+          inspector="$(unzip -l "$apk" | grep -ciE 'ui_ui-tooling(-data)?\.version' || true)"
+          [ "$inspector" = "0" ] || err "Compose layout inspector is packaged in the release APK"
 
           rel=$(stat -c%s "$apk")
           note "release APK = $rel bytes ($((rel / 1000000)) MB); v1.0.4 was 56665788"
