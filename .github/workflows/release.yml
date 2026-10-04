@@ -55,7 +55,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: set -o pipefail; ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee compile.log
+        run: set -o pipefail; ./gradlew testPersonalDebugUnitTest --no-daemon 2>&1 | tee compile.log
 
       # Emitted as ::error:: as well as printed, so a failure is readable from the run's
       # annotations without opening the log. Gradle's own "What went wrong" is included,
@@ -84,7 +84,7 @@ jobs:
 
       - name: Verify tests actually executed
         run: |
-          results="app/build/test-results/testDebugUnitTest"
+          results="app/build/test-results/testPersonalDebugUnitTest"
           if [ ! -d "$results" ]; then
             echo "No test results directory: the test task did not run."; exit 1
           fi
