@@ -117,6 +117,14 @@ jobs:
           note "applicationId = ${pkg:-unknown}"
           [ "$pkg" = "com.dathaze.pagewall" ] || err "applicationId is '$pkg', expected com.dathaze.pagewall"
 
+          # The two builds install side by side, so a shared label would leave two identical
+          # entries in the launcher and the live wallpaper picker.
+          label="$("$tools/aapt2" dump badging "$apk" 2>/dev/null \
+            | grep -oP "application-label:'\\K[^']+" | head -1)"
+          note "personal label = ${label:-none}"
+          [ "$label" = "Page Wallpaper (Personal)" ] \
+            || err "personal label is '$label', expected 'Page Wallpaper (Personal)'"
+
           # AndroidX drops a META-INF/<group>_<artifact>.version marker per library, so this
           # names what is actually packaged. Matched precisely: ui-tooling-preview is only the
           # @Preview annotation and is an ordinary dependency, while ui-tooling and
@@ -145,6 +153,13 @@ jobs:
           echo "::notice::public flavour applicationId = ${id:-unknown}"
           [ "$id" = "io.github.dathaze20.pagewallpaper" ] \
             || { echo "::error::public flavour applicationId is '$id'"; exit 1; }
+
+          # The canonical product keeps the plain name; only the personal copy is qualified.
+          publabel="$("$tools/aapt2" dump badging "$pub" 2>/dev/null \
+            | grep -oP "application-label:'\\K[^']+" | head -1)"
+          echo "::notice::public flavour label = ${publabel:-none}"
+          [ "$publabel" = "Page Wallpaper" ] \
+            || { echo "::error::public label is '$publabel', expected 'Page Wallpaper'"; exit 1; }
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4

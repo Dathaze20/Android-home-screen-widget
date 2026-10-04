@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Labels for the personal build only.
+
+  The public build is the canonical product and keeps the plain name, so a stranger installing it
+  sees "Page Wallpaper" and nothing else. This copy is the exception, so this is the one that
+  carries the qualifier.
+
+  All three matter, because Android reads a different one in each place the app appears:
+  app_name in the launcher, the share sheet and app settings; wallpaper_label in the live
+  wallpaper picker; widget_label in the widget picker. Overriding one and not the others would
+  leave two identically named entries in whichever list was missed — and the live wallpaper
+  picker is the worst place to pick the wrong one.
+
+  Only the strings are overridden. The icon is deliberately left alone: the text is enough to
+  tell them apart, and a second icon would be work nobody has needed yet.
+-->
+<resources>
+    <string name="app_name">Page Wallpaper (Personal)</string>
+    <string name="wallpaper_label">Page Wallpaper (Personal)</string>
+    <string name="widget_label">Page Wallpaper (Personal)</string>
+</resources>
