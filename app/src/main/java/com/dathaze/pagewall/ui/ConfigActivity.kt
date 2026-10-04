@@ -76,7 +76,7 @@ class ConfigActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    if (!state.onboardingDone) {
+                    if (!state.setupComplete) {
                         OnboardingScreen(
                             modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing),
                             pageCount = state.pageCount,
@@ -165,6 +165,7 @@ class ConfigActivity : ComponentActivity() {
                         onTouchCompatibilityChange = viewModel::setTouchCompatibility,
                         onDefaultHomePageChange = viewModel::setDefaultHomePage,
                         onSyncOnReturnHomeChange = viewModel::setSyncOnReturnHome,
+                        onFollowHomeJumpChange = viewModel::setFollowLauncherHomeJump,
                         onSyncWallpaperTo = viewModel::syncWallpaperTo,
                         onRestartOnboarding = {
                             settingsOpen = false

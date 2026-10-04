@@ -191,6 +191,21 @@ class PageStore(context: Context) {
         get() = prefs.getBoolean(KEY_SYNC_HOME, true)
         set(value) = prefs.edit().putBoolean(KEY_SYNC_HOME, value).apply()
 
+    /**
+     * Whether an offset report arriving with no finger on the screen should be read as the
+     * launcher going home. Off by default: it is an inference about launcher behaviour, and a
+     * launcher that reports for other reasons would drag the wallpaper back to screen 1 by
+     * itself. [idleOffsetReports] is how you tell whether it would work on a given phone.
+     */
+    var followLauncherHomeJump: Boolean
+        get() = prefs.getBoolean(KEY_HOME_JUMP, false)
+        set(value) = prefs.edit().putBoolean(KEY_HOME_JUMP, value).apply()
+
+    /** Offset reports that arrived while no finger had touched the screen for a while. */
+    var idleOffsetReports: Int
+        get() = prefs.getInt(KEY_IDLE_OFFSETS, 0)
+        set(value) = prefs.edit().putInt(KEY_IDLE_OFFSETS, value).apply()
+
     /** Bumped by the app to tell the engine to jump to [manualSyncPage]. */
     var manualSyncNonce: Long
         get() = prefs.getLong(KEY_SYNC_NONCE, 0L)
@@ -301,6 +316,7 @@ class PageStore(context: Context) {
             .remove(KEY_DETECTION_MODE)
             .remove(KEY_TOUCH_RAW)
             .remove(KEY_SWIPES)
+            .remove(KEY_IDLE_OFFSETS)
             .apply()
     }
 
@@ -464,6 +480,8 @@ class PageStore(context: Context) {
         const val KEY_AUDIO_VOLUME = "audio_volume"
         const val KEY_CURRENT_PAGE = "current_page"
         const val KEY_SAW_OFFSETS = "saw_offsets"
+        const val KEY_HOME_JUMP = "follow_home_jump"
+        const val KEY_IDLE_OFFSETS = "idle_offset_reports"
 
         const val MIN_PAGES = 1
         const val MAX_PAGES = 12

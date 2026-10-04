@@ -70,6 +70,7 @@ fun SettingsSheet(
     onTouchCompatibilityChange: (TouchCompatibility) -> Unit,
     onDefaultHomePageChange: (Int) -> Unit,
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
+    onFollowHomeJumpChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
     onRestartOnboarding: () -> Unit,
     onCheckForUpdates: () -> Unit,
@@ -107,7 +108,13 @@ fun SettingsSheet(
             SectionHeading("HOME SCREENS")
             WallpaperRow(state, onApplyWallpaper)
             PageCountRow(state, onPageCountChange, onResetPageCount)
-            HomeSyncRow(state, onDefaultHomePageChange, onSyncOnReturnHomeChange, onSyncWallpaperTo)
+            HomeSyncRow(
+                state,
+                onDefaultHomePageChange,
+                onSyncOnReturnHomeChange,
+                onFollowHomeJumpChange,
+                onSyncWallpaperTo,
+            )
 
             HorizontalDivider()
             SectionHeading("APPEARANCE")
@@ -383,6 +390,7 @@ private fun LauncherReport(
                 "xOffsetStep: ${fmt(state.lastOffsetStep)}\n" +
                 "range seen: ${fmt(state.observedMinOffset)} \u2192 ${fmt(state.observedMaxOffset)}\n" +
                 "offset reports: ${state.offsetEventCount}\n" +
+                "reports with no finger down: ${state.idleOffsetReports}\n" +
                 "offset-derived screen: ${if (state.computedPage >= 0) "${state.computedPage + 1}" else "\u2014"}\n" +
                 "screens (manual): ${state.pageCount}\n" +
                 "screens (launcher): ${if (state.detectedPageCount > 0) "${state.detectedPageCount}" else "not reported"}\n" +
@@ -470,6 +478,7 @@ private fun HomeSyncRow(
     state: ConfigUiState,
     onDefaultHomePageChange: (Int) -> Unit,
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
+    onFollowHomeJumpChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -488,6 +497,30 @@ private fun HomeSyncRow(
                 "unlocking never triggers it \u2014 your phone has not moved.",
             checked = state.syncOnReturnHome,
             onCheckedChange = onSyncOnReturnHomeChange,
+        )
+
+        SettingSwitch(
+            title = "Follow the Home button (try it)",
+            subtitle = "Pressing Home while you are already on the home screen is the one page " +
+                "change Android tells a wallpaper nothing about. This guesses it from the " +
+                "launcher scrolling with no finger on the screen. Off by default because a " +
+                "launcher that reports for other reasons would pull you back to screen 1 on its " +
+                "own \u2014 if that happens, switch it off. The reading below says whether your " +
+                "launcher reports anything to go on.",
+            checked = state.followLauncherHomeJump,
+            onCheckedChange = onFollowHomeJumpChange,
+        )
+        Text(
+            "Launcher moved on its own: ${state.idleOffsetReports} times" +
+                if (state.idleOffsetReports == 0) {
+                    " \u2014 nothing yet. Press Home a few times from another screen, then " +
+                        "reopen this. If it stays at zero, your launcher reports nothing and " +
+                        "this cannot work."
+                } else {
+                    ""
+                },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Text("Sync wallpaper now", fontWeight = FontWeight.SemiBold)

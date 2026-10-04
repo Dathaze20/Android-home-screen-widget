@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MusicNote
@@ -62,7 +61,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -441,17 +439,6 @@ private fun PageCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            // Keeps the label legible over a bright picture.
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.45f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.72f),
-                        )
-                    )
-            )
         } else {
             Box(Modifier.fillMaxSize().background(PageWallColors.GlassSheen))
             Icon(
@@ -462,16 +449,34 @@ private fun PageCard(
             )
         }
 
-        Row(
+        // The screen's number, and nothing else written across the picture. "SCREEN 1" in a tile
+        // this narrow came out as "SCRE…" at a large font scale, and a caption that cannot be
+        // read is worse than no caption: the picture is the label.
+        Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(8.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.55f))
+                .size(28.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "${page.index + 1}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (isTracked) PageWallColors.Cyan else Color.White,
+                maxLines = 1,
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (page.hasMedia) {
-                Badge(Icons.Default.Check, "Configured", PageWallColors.Violet)
-            }
             when (page.mediaKind) {
                 MediaKind.VIDEO -> if (page.hasMedia) Badge(Icons.Default.PlayCircle, "Video", null)
                 MediaKind.GIF -> if (page.hasMedia) Badge(Icons.Default.Gif, "GIF", null)
@@ -480,27 +485,25 @@ private fun PageCard(
             if (page.hasAudio) Badge(Icons.Default.MusicNote, "Has soundtrack", null)
         }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Text(
-                "SCREEN ${page.index + 1}",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = if (isTracked) "Showing now" else if (page.hasMedia) page.kindLabel else "Tap to add",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isTracked) PageWallColors.Cyan else Color.White.copy(alpha = 0.72f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        // Which screen you are standing on, as a mark rather than a sentence.
+        if (isTracked) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 8.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    "NOW",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = PageWallColors.Cyan,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
     }
 }
@@ -582,13 +585,13 @@ private fun PrimaryActions(
                 enabled = !state.busy,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) { Text("Change photos", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            ) { Text("Change photos", maxLines = 2, textAlign = TextAlign.Center) }
 
             OutlinedButton(
                 onClick = onOpenSettings,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) { Text("Settings", maxLines = 1) }
+            ) { Text("Settings", maxLines = 2, textAlign = TextAlign.Center) }
         }
 
         if (!state.wallpaperActive && assignedCount > 0) {

@@ -67,6 +67,10 @@ data class ConfigUiState(
     /** The screen the launcher treats as home, used to resync without an observed swipe. */
     val defaultHomePage: Int = 0,
     val syncOnReturnHome: Boolean = true,
+    /** Experimental: treat a launcher-initiated scroll as the Home button. Off by default. */
+    val followLauncherHomeJump: Boolean = false,
+    /** Offset reports that arrived with no finger down — whether the guess has anything to go on. */
+    val idleOffsetReports: Int = 0,
     /** Raw touch events forwarded by the launcher, whether or not they became swipes. */
     val touchEventsRaw: Int = 0,
     val recognisedSwipes: Int = 0,
@@ -82,7 +86,17 @@ data class ConfigUiState(
     val errorMessage: String? = null,
     /** Neutral confirmation of what an action actually did. Cleared once shown. */
     val noticeMessage: String? = null,
-)
+) {
+    /**
+     * Whether the setup screen has anything left to say.
+     *
+     * A working install never needs it. Showing it because a flag happened to be cleared put a
+     * page of instructions in front of someone whose wallpaper was already running — the app is
+     * for looking at your screens, so that is what it should open on.
+     */
+    val setupComplete: Boolean
+        get() = onboardingDone || (wallpaperActive && pages.any { it.hasMedia })
+}
 
 class ConfigViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -138,6 +152,8 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             photoFit = store.photoFit,
             defaultHomePage = store.defaultHomePage,
             syncOnReturnHome = store.syncOnReturnHome,
+            followLauncherHomeJump = store.followLauncherHomeJump,
+            idleOffsetReports = store.idleOffsetReports,
             touchEventsRaw = store.touchEventCountRaw,
             recognisedSwipes = store.recognisedSwipeCount,
             displayedPage = store.displayedPage,
@@ -349,6 +365,11 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSyncOnReturnHome(enabled: Boolean) {
         store.syncOnReturnHome = enabled
+        afterChange()
+    }
+
+    fun setFollowLauncherHomeJump(enabled: Boolean) {
+        store.followLauncherHomeJump = enabled
         afterChange()
     }
 

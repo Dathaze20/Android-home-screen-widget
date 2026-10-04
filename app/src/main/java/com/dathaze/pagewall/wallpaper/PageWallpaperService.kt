@@ -24,6 +24,7 @@ import com.dathaze.pagewall.data.SyncPolicy
 import com.dathaze.pagewall.data.PageMath
 import com.dathaze.pagewall.data.SwipeDirection
 import com.dathaze.pagewall.data.SwipeMath
+import com.dathaze.pagewall.data.HomeJumpPolicy
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.widget.PageWidgetProvider
 import java.io.File
@@ -73,6 +74,11 @@ class PageWallpaperService : WallpaperService() {
         private var recognisedSwipes = 0
         private var lastSwipeName = ""
         private var lastTouchDiagnosticsWrite = 0L
+
+        /** When the launcher last forwarded a touch, and when a home jump last fired. */
+        private var lastTouchAt = 0L
+        private var lastHomeJumpAt = 0L
+        private var idleOffsetReports = 0
 
         /**
          * Set when the display turned off while the wallpaper was hidden, so that unlocking is
@@ -158,6 +164,9 @@ class PageWallpaperService : WallpaperService() {
             // every page showing the same picture.
             setOffsetNotificationsEnabled(true)
             store.registerListener(this)
+            // Seeded, not left at zero: an engine that has never been touched would otherwise
+            // count its very first offset reports as "the launcher moved by itself".
+            lastTouchAt = SystemClock.uptimeMillis()
             // A clip that will not play must not leave the surface in nobody's hands: come out of
             // video mode and draw its poster frame on the canvas instead.
             video.onPlaybackFailed = { path ->
@@ -333,8 +342,33 @@ class PageWallpaperService : WallpaperService() {
             // anything, over what range, and which page that works out to.
             offsetEvents++
             val now = SystemClock.uptimeMillis()
+
+            // A report arriving well clear of any finger means the launcher moved itself. On a
+            // home screen that is almost always the Home button, which Android gives a wallpaper
+            // no other way to notice: the wallpaper never goes invisible, so the resync that
+            // handles coming back from an app never runs. Counted either way, so the diagnostics
+            // panel can show whether this launcher reports anything to go on at all.
+            if (visible && now - lastTouchAt >= HomeJumpPolicy.TOUCH_SETTLE_MS) {
+                idleOffsetReports++
+                if (
+                    HomeJumpPolicy.shouldJumpHome(
+                        mode = currentDetectionMode(),
+                        enabled = store.followLauncherHomeJump,
+                        currentPage = currentPage,
+                        defaultHomePage = store.defaultHomePage,
+                        msSinceLastTouch = now - lastTouchAt,
+                        msSinceLastJump = now - lastHomeJumpAt,
+                    )
+                ) {
+                    lastHomeJumpAt = now
+                    val target = store.defaultHomePage.coerceIn(0, store.pageCount - 1)
+                    switchToPage(target, animate = true, playAudio = false)
+                }
+            }
+
             if (now - lastDiagnosticsWrite > DIAGNOSTICS_INTERVAL_MS) {
                 lastDiagnosticsWrite = now
+                store.idleOffsetReports = idleOffsetReports
                 store.recordOffsets(
                     count = offsetEvents,
                     offset = xOffset,
@@ -378,6 +412,7 @@ class PageWallpaperService : WallpaperService() {
             // Counted for every event, whatever comes of it: a launcher forwarding touches that
             // never amount to a swipe has to look different from one forwarding nothing at all.
             rawTouchEvents++
+            lastTouchAt = SystemClock.uptimeMillis()
 
             val mode = currentDetectionMode()
             if (mode != DetectionMode.TOUCH) {
@@ -483,6 +518,7 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_TOUCH_EVENTS,
                 PageStore.KEY_LAST_SWIPE,
                 PageStore.KEY_DETECTION_MODE,
+                PageStore.KEY_IDLE_OFFSETS,
                 PageStore.KEY_SYNC_PAGE -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
