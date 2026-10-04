@@ -16,6 +16,7 @@ import android.util.Log
 import android.service.wallpaper.WallpaperService
 import android.view.MotionEvent
 import android.view.SurfaceHolder
+import androidx.core.content.ContextCompat
 import com.dathaze.pagewall.audio.PageAudioController
 import com.dathaze.pagewall.data.MediaKind
 import com.dathaze.pagewall.data.DetectionMode
@@ -24,7 +25,6 @@ import com.dathaze.pagewall.data.SyncPolicy
 import com.dathaze.pagewall.data.PageMath
 import com.dathaze.pagewall.data.SwipeDirection
 import com.dathaze.pagewall.data.SwipeMath
-import com.dathaze.pagewall.data.HomeJumpPolicy
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.widget.PageWidgetProvider
 import java.io.File
@@ -75,10 +75,18 @@ class PageWallpaperService : WallpaperService() {
         private var lastSwipeName = ""
         private var lastTouchDiagnosticsWrite = 0L
 
-        /** When the launcher last forwarded a touch, and when a home jump last fired. */
-        private var lastTouchAt = 0L
-        private var lastHomeJumpAt = 0L
-        private var idleOffsetReports = 0
+        /** Home presses actually seen, so the settings screen can say whether this phone sends them. */
+        private var homeKeyEvents = 0
+
+        /**
+         * Listens for the Home button, and only exists while the setting is on.
+         *
+         * Separate from the screen-off receiver on purpose. Adding this action to that filter is
+         * what broke v1.0.2: the two together are not all protected broadcasts, so registration
+         * needed an export flag it did not have and threw inside engine creation. Its own
+         * receiver, its own registration, its own failure.
+         */
+        private var homeReceiver: BroadcastReceiver? = null
 
         /**
          * Set when the display turned off while the wallpaper was hidden, so that unlocking is
@@ -166,7 +174,6 @@ class PageWallpaperService : WallpaperService() {
             store.registerListener(this)
             // Seeded, not left at zero: an engine that has never been touched would otherwise
             // count its very first offset reports as "the launcher moved by itself".
-            lastTouchAt = SystemClock.uptimeMillis()
             // A clip that will not play must not leave the surface in nobody's hands: come out of
             // video mode and draw its poster frame on the canvas instead.
             video.onPlaybackFailed = { path ->
@@ -202,6 +209,10 @@ class PageWallpaperService : WallpaperService() {
             )
             store.currentPage = currentPage
             store.displayedPage = currentPage
+            // Last, deliberately: everything the wallpaper needs in order to draw is already set
+            // up by this point, so nothing here can hold up a working engine.
+            homeKeyEvents = store.homeKeyEvents
+            updateHomeReceiver()
         }
 
         override fun onDestroy() {
@@ -209,6 +220,8 @@ class PageWallpaperService : WallpaperService() {
             handler.removeCallbacksAndMessages(null)
             store.unregisterListener(this)
             runCatching { unregisterReceiver(screenReceiver) }
+            homeReceiver?.let { runCatching { unregisterReceiver(it) } }
+            homeReceiver = null
             gesture.reset()
             stopAnimation()
             renderer.clearCaches()
@@ -262,6 +275,62 @@ class PageWallpaperService : WallpaperService() {
                 // No crossfade: the correct picture should already be there as the launcher appears.
                 switchToPage(target, animate = false, playAudio = false)
             }
+        }
+
+        /**
+         * Starts or stops listening for the Home button, to match the setting.
+         *
+         * Registered only while the setting is on, so an install with it off runs nothing new at
+         * all. [ContextCompat.registerReceiver] with RECEIVER_NOT_EXPORTED is the call this needs:
+         * from Android 14 a context-registered receiver must say whether it is exported unless
+         * every action in its filter is a protected system broadcast, and the bare
+         * registerReceiver that v1.0.2 used threw instead of saying so. Not-exported still
+         * receives system broadcasts; it only refuses other apps.
+         *
+         * Wrapped, and the receiver is recorded only if registration actually succeeded, so a
+         * refusal by a future Android leaves the feature switched off rather than the wallpaper
+         * dead.
+         */
+        private fun updateHomeReceiver() {
+            val wanted = store.followLauncherHomeJump && !isPreview
+            if (wanted && homeReceiver == null) {
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        if (intent?.getStringExtra("reason") != REASON_HOME_KEY) return
+                        homeKeyEvents++
+                        store.homeKeyEvents = homeKeyEvents
+                        onHomePressed()
+                    }
+                }
+                val registered = runCatching {
+                    ContextCompat.registerReceiver(
+                        this@PageWallpaperService,
+                        receiver,
+                        IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS),
+                        ContextCompat.RECEIVER_NOT_EXPORTED,
+                    )
+                }.onFailure { Log.w(TAG, "Could not listen for the Home button", it) }.isSuccess
+                if (registered) homeReceiver = receiver
+            } else if (!wanted && homeReceiver != null) {
+                runCatching { unregisterReceiver(homeReceiver) }
+                homeReceiver = null
+            }
+        }
+
+        /**
+         * The Home button was pressed while the wallpaper was on screen.
+         *
+         * This is the one page change nothing else can see: the wallpaper never becomes
+         * invisible, so the resync in [SyncPolicy.pageOnVisible] never runs, and under touch
+         * tracking there is no swipe to observe. Offset tracking ignores it, because the launcher
+         * reports its real page a frame later and would correct it anyway.
+         */
+        private fun onHomePressed() {
+            if (!visible || isPreview) return
+            if (!store.syncOnReturnHome) return
+            if (currentDetectionMode() != DetectionMode.TOUCH) return
+            val target = store.defaultHomePage.coerceIn(0, store.pageCount - 1)
+            if (target != currentPage) switchToPage(target, animate = true, playAudio = false)
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -352,32 +421,8 @@ class PageWallpaperService : WallpaperService() {
             offsetEvents++
             val now = SystemClock.uptimeMillis()
 
-            // A report arriving well clear of any finger means the launcher moved itself. On a
-            // home screen that is almost always the Home button, which Android gives a wallpaper
-            // no other way to notice: the wallpaper never goes invisible, so the resync that
-            // handles coming back from an app never runs. Counted either way, so the diagnostics
-            // panel can show whether this launcher reports anything to go on at all.
-            if (visible && now - lastTouchAt >= HomeJumpPolicy.TOUCH_SETTLE_MS) {
-                idleOffsetReports++
-                if (
-                    HomeJumpPolicy.shouldJumpHome(
-                        mode = currentDetectionMode(),
-                        enabled = store.followLauncherHomeJump,
-                        currentPage = currentPage,
-                        defaultHomePage = store.defaultHomePage,
-                        msSinceLastTouch = now - lastTouchAt,
-                        msSinceLastJump = now - lastHomeJumpAt,
-                    )
-                ) {
-                    lastHomeJumpAt = now
-                    val target = store.defaultHomePage.coerceIn(0, store.pageCount - 1)
-                    switchToPage(target, animate = true, playAudio = false)
-                }
-            }
-
             if (now - lastDiagnosticsWrite > DIAGNOSTICS_INTERVAL_MS) {
                 lastDiagnosticsWrite = now
-                store.idleOffsetReports = idleOffsetReports
                 store.recordOffsets(
                     count = offsetEvents,
                     offset = xOffset,
@@ -421,7 +466,6 @@ class PageWallpaperService : WallpaperService() {
             // Counted for every event, whatever comes of it: a launcher forwarding touches that
             // never amount to a swipe has to look different from one forwarding nothing at all.
             rawTouchEvents++
-            lastTouchAt = SystemClock.uptimeMillis()
 
             val mode = currentDetectionMode()
             if (mode != DetectionMode.TOUCH) {
@@ -527,8 +571,14 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_TOUCH_EVENTS,
                 PageStore.KEY_LAST_SWIPE,
                 PageStore.KEY_DETECTION_MODE,
-                PageStore.KEY_IDLE_OFFSETS,
+                PageStore.KEY_HOME_KEYS,
                 PageStore.KEY_SYNC_PAGE -> return
+
+                // Turning the switch on or off is the only thing that starts or stops listening.
+                PageStore.KEY_HOME_JUMP -> {
+                    updateHomeReceiver()
+                    return
+                }
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     unplayableVideos.clear()
@@ -765,6 +815,9 @@ class PageWallpaperService : WallpaperService() {
         const val PREVIEW_INTERVAL_MS = 2_500L
         const val OFFSET_EPSILON = 0.001f
         const val DIAGNOSTICS_INTERVAL_MS = 400L
+
+        /** The "reason" the system puts on ACTION_CLOSE_SYSTEM_DIALOGS for the Home button. */
+        const val REASON_HOME_KEY = "homekey"
         const val CENTER_PAN = 0.5f
     }
 }

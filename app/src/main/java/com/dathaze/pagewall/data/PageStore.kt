@@ -192,19 +192,25 @@ class PageStore(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_SYNC_HOME, value).apply()
 
     /**
-     * Whether an offset report arriving with no finger on the screen should be read as the
-     * launcher going home. Off by default: it is an inference about launcher behaviour, and a
-     * launcher that reports for other reasons would drag the wallpaper back to screen 1 by
-     * itself. [idleOffsetReports] is how you tell whether it would work on a given phone.
+     * Whether the wallpaper listens for the Home button at all.
+     *
+     * Off by default, and the engine registers nothing while it is off, so installing a build
+     * with this switch untouched runs no new code. [homeKeyEvents] says whether the phone
+     * actually reports the button once it is on.
      */
     var followLauncherHomeJump: Boolean
         get() = prefs.getBoolean(KEY_HOME_JUMP, false)
         set(value) = prefs.edit().putBoolean(KEY_HOME_JUMP, value).apply()
 
-    /** Offset reports that arrived while no finger had touched the screen for a while. */
-    var idleOffsetReports: Int
-        get() = prefs.getInt(KEY_IDLE_OFFSETS, 0)
-        set(value) = prefs.edit().putInt(KEY_IDLE_OFFSETS, value).apply()
+    /**
+     * Home presses the system has actually told the wallpaper about.
+     *
+     * The decisive reading: if this stays at zero with the switch on, the broadcast is not
+     * reaching us and no setting will change that.
+     */
+    var homeKeyEvents: Int
+        get() = prefs.getInt(KEY_HOME_KEYS, 0)
+        set(value) = prefs.edit().putInt(KEY_HOME_KEYS, value).apply()
 
     /** Bumped by the app to tell the engine to jump to [manualSyncPage]. */
     var manualSyncNonce: Long
@@ -316,7 +322,7 @@ class PageStore(context: Context) {
             .remove(KEY_DETECTION_MODE)
             .remove(KEY_TOUCH_RAW)
             .remove(KEY_SWIPES)
-            .remove(KEY_IDLE_OFFSETS)
+            .remove(KEY_HOME_KEYS)
             .apply()
     }
 
@@ -481,7 +487,7 @@ class PageStore(context: Context) {
         const val KEY_CURRENT_PAGE = "current_page"
         const val KEY_SAW_OFFSETS = "saw_offsets"
         const val KEY_HOME_JUMP = "follow_home_jump"
-        const val KEY_IDLE_OFFSETS = "idle_offset_reports"
+        const val KEY_HOME_KEYS = "home_key_events"
 
         const val MIN_PAGES = 1
         const val MAX_PAGES = 12
