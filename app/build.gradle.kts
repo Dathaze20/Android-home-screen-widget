@@ -27,6 +27,10 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName
+
+        // Which release asset belongs to this build. The product flavours override it; the
+        // default is the personal build, which is what every release so far has been.
+        buildConfigField("String", "UPDATE_ASSET_TAG", "\"personal\"")
     }
 
     signingConfigs {
@@ -70,6 +74,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

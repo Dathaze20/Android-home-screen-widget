@@ -7,6 +7,14 @@ Set it up once; after that it runs by itself with the app closed.
 
 Built for a Galaxy A17 / One UI, but nothing in it is Samsung-specific.
 
+> [!WARNING]
+> **Releases v1.0.1 to v1.0.5 are personal builds, not a public distribution channel.**
+> They are signed with the debug keystore checked into this repository, whose password is the
+> standard Android debug one. Anyone can sign an APK with that same identity, and Android would
+> accept it as an *update* to an installed copy — inheriting its data. Those releases are kept so
+> the history stays honest, but do not install them expecting the signature to mean anything.
+> The public build, with a private release key and its own application ID, is still being set up.
+
 ---
 
 ## The simple explanation
@@ -210,11 +218,12 @@ a phone whose pictures are not changing.
 
 ## Status
 
-AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28.
+AGP 9.4 / Kotlin 2.4 / Gradle 9.8 / compileSdk 37, targetSdk 35, minSdk 28.
 
 Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
 resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`), the update version
-rule (`UpdateVersionTest`) and the tile grid (`GridLayoutTest`). They run in CI before every
+rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`) and the tile
+grid (`GridLayoutTest`). They run in CI before every
 build; no APK is produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized
@@ -222,5 +231,21 @@ from their own width rather than from leftover space. That is a rule, not a styl
 layout put the setup screen's only exit at the bottom of a column that did not scroll, so on a
 phone with the display font turned up there was no way out of the app at all.
 
-Signed with a fixed debug key checked into the repo, so each build installs over the last instead
-of forcing an uninstall. A debug key with the standard debug password, not a release key.
+## Signing
+
+The personal build is signed with a fixed debug key checked into the repo, so each build installs
+over the last instead of forcing an uninstall. That key is public by definition, which is fine for
+one person's own phone and not fine for strangers: on Android the signing key *is* the app's
+identity, so a publicly known key means anyone can build something Android will accept as an
+update to it.
+
+The public build therefore gets its own application ID and a private release key held in GitHub
+Secrets. Each release carries one APK per build, named for which it is, and the in-app updater
+picks the one matching its own build rather than the first file it finds — installing the other
+one cannot work, because the application ID and the signing key both differ.
+
+## License
+
+[GPL-3.0](LICENSE). You may use, study, change and share this. If you distribute a modified
+version, its source has to stay available under the same license — a fork can be sold, but it
+cannot be closed.

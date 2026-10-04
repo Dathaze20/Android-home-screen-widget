@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.dathaze.pagewall.BuildConfig
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -87,10 +88,13 @@ class AppUpdater(private val context: Context) {
         }
 
         val assets = release.optJSONArray("assets")
-        val apk = (0 until (assets?.length() ?: 0))
-            .mapNotNull { assets?.optJSONObject(it) }
-            .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
-            ?: return UpdateState.Failed("$tag is out, but has no APK attached yet")
+        val entries = (0 until (assets?.length() ?: 0)).mapNotNull { assets?.optJSONObject(it) }
+        // Not "the first .apk": a release carries one APK per build, and they differ by
+        // applicationId and signing key, so the wrong one cannot install over this app.
+        val wanted = UpdateAssets.pick(entries.map { it.optString("name") }, BuildConfig.UPDATE_ASSET_TAG)
+            ?: return UpdateState.Failed("$tag is out, but has no build for this app yet")
+        val apk = entries.firstOrNull { it.optString("name") == wanted }
+            ?: return UpdateState.Failed("$tag is out, but has no build for this app yet")
 
         return UpdateState.Available(
             AvailableUpdate(
