@@ -105,6 +105,7 @@ fun SettingsSheet(
 
             HorizontalDivider()
             SectionHeading("HOME SCREENS")
+            WallpaperRow(state, onApplyWallpaper)
             PageCountRow(state, onPageCountChange, onResetPageCount)
             HomeSyncRow(state, onDefaultHomePageChange, onSyncOnReturnHomeChange, onSyncWallpaperTo)
 
@@ -432,6 +433,36 @@ private fun SectionHeading(text: String) {
         color = PageWallColors.Cyan,
         fontWeight = FontWeight.Bold,
     )
+}
+
+/**
+ * Setting the wallpaper, from the menu.
+ *
+ * Reachable from here as well as from the main screen, because this is where someone looks when
+ * the wallpaper has been replaced by something else and the app looks idle. The reassurance is
+ * not decoration: re-applying used to look like it had wiped the screens, and it never has.
+ */
+@Composable
+private fun WallpaperRow(state: ConfigUiState, onApplyWallpaper: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            if (state.wallpaperActive) "Wallpaper is active" else "Not your wallpaper yet",
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            if (state.wallpaperActive) {
+                "Re-apply it if something else has taken over. Your screens and settings are kept."
+            } else {
+                "Set Page Wallpaper as your wallpaper to start. Choose Home screen when asked."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+            onClick = onApplyWallpaper,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text(if (state.wallpaperActive) "Re-apply wallpaper" else "Set as wallpaper") }
+    }
 }
 
 @Composable

@@ -181,8 +181,9 @@ the engine starts drawing again.
 | `data/PageStore.kt` | Page assignments, in SharedPreferences |
 | `data/MediaImporter.kt` | Copies media into private storage; shrinks photos, leaves GIFs and videos untouched, saves a poster frame for videos |
 | `audio/PageAudioController.kt` | Optional per-page song (off by default) |
-| `ui/HomeScreen.kt` | The whole app: a non-scrolling grid of page tiles, with the pickers |
-| `ui/SettingsSheet.kt` | The knobs, behind one icon |
+| `ui/HomeScreen.kt` | The whole app: a grid of page tiles, with the pickers |
+| `ui/GridLayout.kt` | How many columns the tiles get; pure arithmetic, so it is unit tested |
+| `ui/SettingsSheet.kt` | The menu, behind the button at the top left |
 | `widget/PageWidgetProvider.kt` | The widget |
 | `update/UpdateVersion.kt` | The tag-to-versionCode rule and the update states; no Android imports, so it is unit tested |
 | `update/AppUpdater.kt` | Asks GitHub for the latest release, downloads the APK, hands it to the installer |
@@ -212,8 +213,14 @@ a phone whose pictures are not changing.
 AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28.
 
 Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
-resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`) and the update version
-rule (`UpdateVersionTest`). They run in CI before every build; no APK is produced if they fail.
+resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`), the update version
+rule (`UpdateVersionTest`) and the tile grid (`GridLayoutTest`). They run in CI before every
+build; no APK is produced if they fail.
+
+Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized
+from their own width rather than from leftover space. That is a rule, not a style: an earlier
+layout put the setup screen's only exit at the bottom of a column that did not scroll, so on a
+phone with the display font turned up there was no way out of the app at all.
 
 Signed with a fixed debug key checked into the repo, so each build installs over the last instead
 of forcing an uninstall. A debug key with the standard debug password, not a release key.

@@ -1,16 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Three home screens side by side, each a different colour: the app in one glance.
+
+  Everything sits inside x 24..84 and y 30..78. An adaptive icon only guarantees the middle
+  66dp of the 108dp canvas survives the launcher's mask, so anything outside 21..87 can be
+  cropped off on some phones. The colours are the app's own violet-to-cyan ramp rather than the
+  plain blues this used to be, so the icon and the app look like the same product.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M28,30 h10 a4,4 0 0 1 4,4 v40 a4,4 0 0 1 -4,4 h-10 a4,4 0 0 1 -4,-4 v-40 a4,4 0 0 1 4,-4 z" />
+    <path
         android:fillColor="#4C7DF0"
-        android:pathData="M28,34h18v40h-18z" />
+        android:pathData="M49,30 h10 a4,4 0 0 1 4,4 v40 a4,4 0 0 1 -4,4 h-10 a4,4 0 0 1 -4,-4 v-40 a4,4 0 0 1 4,-4 z" />
     <path
-        android:fillColor="#7BB0F2"
-        android:pathData="M50,34h18v40h-18z" />
-    <path
-        android:fillColor="#B5D7F7"
-        android:pathData="M72,34h12v40h-12z" />
+        android:fillColor="#22D3EE"
+        android:pathData="M70,30 h10 a4,4 0 0 1 4,4 v40 a4,4 0 0 1 -4,4 h-10 a4,4 0 0 1 -4,-4 v-40 a4,4 0 0 1 4,-4 z" />
 </vector>
