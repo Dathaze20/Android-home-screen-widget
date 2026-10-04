@@ -13,7 +13,10 @@ val appVersionCode: Int = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 10
 
 android {
     namespace = "com.dathaze.pagewall"
-    compileSdk = 35
+    // Compiled against 36, still targeting 35. compileSdk is what the newer AndroidX and Compose
+    // releases need to build; targetSdk is what changes how Android treats the app at runtime, so
+    // it stays where it is. Raising it is a behaviour change and belongs in its own release.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.dathaze.pagewall"
@@ -64,12 +67,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
+    }
+}
+
+kotlin {
+    // kotlinOptions is gone in the Kotlin 2.x Gradle plugin; this is the same setting.
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
