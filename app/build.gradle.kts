@@ -10,6 +10,14 @@ plugins {
 val appVersionName: String = System.getenv("APP_VERSION_NAME") ?: "1.0.0"
 val appVersionCode: Int = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 10000
 
+// The private key for the public build, supplied by CI from GitHub Secrets and never checked in.
+// Absent on any ordinary checkout, which is deliberate: the public flavour then simply goes
+// unsigned and CI skips publishing it, rather than the whole build failing for everyone who does
+// not hold the key.
+val releaseKeystore: File? = System.getenv("RELEASE_KEYSTORE_PATH")
+    ?.let { rootProject.file(it) }
+    ?.takeIf { it.exists() }
+
 android {
     namespace = "com.dathaze.pagewall"
     // Compiled against 37, still targeting 35. Compose BOM 2026.09 refuses to build against
@@ -34,6 +42,17 @@ android {
     }
 
     signingConfigs {
+        // Only configured when CI has supplied the key. Referenced by the public flavour below,
+        // and only when it actually exists.
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+
         getByName("debug") {
             // Checked in on purpose. Without a fixed key every CI build is signed with a freshly
             // generated one, Android refuses to install it over the previous build, and the only
@@ -46,12 +65,36 @@ android {
         }
     }
 
+    // One codebase, two identities.
+    //
+    // The personal build keeps com.dathaze.pagewall and the checked-in debug key, so the copy
+    // already on a phone keeps updating in place. The public build gets its own applicationId and
+    // a private key, because on Android the signing key is the app's identity and this one's is
+    // published in this repository — anyone can sign an APK that Android would accept as an
+    // update to it. Both install side by side; neither can update the other, which is the point.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("personal") {
+            dimension = "distribution"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "UPDATE_ASSET_TAG", "\"personal\"")
+        }
+        create("public") {
+            dimension = "distribution"
+            applicationId = "io.github.dathaze20.pagewallpaper"
+            buildConfigField("String", "UPDATE_ASSET_TAG", "\"public\"")
+            // Left unsigned when the key is absent, so a checkout without the secrets still
+            // builds everything else instead of failing at configuration time.
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Signed with the same checked-in key every build has used. Without this the release
-            // variant would be signed differently from what is already installed and Android
-            // would refuse the update, forcing an uninstall — which wipes every page assignment.
-            signingConfig = signingConfigs.getByName("debug")
+            // Signing is set per flavour above, not here: a build type's signingConfig would
+            // override both flavours and hand the public build the published debug key.
 
             // Deliberately off, and not an oversight.
             //

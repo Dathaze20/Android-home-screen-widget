@@ -77,7 +77,7 @@ jobs:
 
 
       - name: Build debug APK
-        run: set -o pipefail; ./gradlew assembleDebug --no-daemon 2>&1 | tee -a compile.log
+        run: set -o pipefail; ./gradlew assemblePersonalDebug --no-daemon 2>&1 | tee -a compile.log
 
       # Built here too, so what gets published is proven on every push rather than first tried
       # at release time. Same checks the release workflow runs before it attaches anything.
@@ -87,7 +87,7 @@ jobs:
       - name: Build release APK and check what it contains
         run: |
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon 2>&1 | tee -a compile.log
+          ./gradlew assemblePersonalRelease --no-daemon 2>&1 | tee -a compile.log
           # No `set -e`: a check that passes must not look like a failure. The previous version
           # used `grep -q ... && { exit 1; }`, and grep returning 1 for "found nothing" — the
           # good case — took the whole script down with it.
@@ -96,7 +96,7 @@ jobs:
           note() { echo "::notice::$*"; }
           err()  { echo "::error::$*"; fail=1; }
 
-          apk="app/build/outputs/apk/release/app-release.apk"
+          apk="app/build/outputs/apk/personal/release/app-personal-release.apk"
           tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
           note "build-tools $(basename "$tools")"
           if [ ! -f "$apk" ]; then err "no release APK at $apk"; exit 1; fi
@@ -129,15 +129,28 @@ jobs:
 
           rel=$(stat -c%s "$apk")
           note "release APK = $rel bytes ($((rel / 1000000)) MB); v1.0.4 was 56665788"
-          dbg=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk 2>/dev/null || echo 0)
+          dbg=$(stat -c%s app/build/outputs/apk/personal/debug/app-personal-debug.apk 2>/dev/null || echo 0)
           note "debug APK = $dbg bytes; saved $((dbg - rel)) bytes"
           exit $fail
+
+      # Compiled even though it cannot be signed here: without this the public flavour would
+      # only ever be built at release time, and would break quietly in between.
+      - name: Check the public flavour still builds
+        run: |
+          set -o pipefail
+          ./gradlew assemblePublicDebug --no-daemon 2>&1 | tee -a compile.log
+          pub="app/build/outputs/apk/public/debug/app-public-debug.apk"
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          id="$("$tools/aapt2" dump packagename "$pub" 2>/dev/null | tr -d '\r\n')"
+          echo "::notice::public flavour applicationId = ${id:-unknown}"
+          [ "$id" = "io.github.dathaze20.pagewallpaper" ] \
+            || { echo "::error::public flavour applicationId is '$id'"; exit 1; }
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: page-wallpaper-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/personal/release/*.apk
           if-no-files-found: error
 
       # Always, not just on failure: a green tick proves the task succeeded, not that any
@@ -156,5 +169,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: page-wallpaper-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/personal/debug/*.apk
           if-no-files-found: error

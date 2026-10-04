@@ -103,7 +103,7 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           APP_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: set -o pipefail; ./gradlew assembleRelease --no-daemon 2>&1 | tee -a compile.log
+        run: set -o pipefail; ./gradlew assemblePersonalRelease --no-daemon 2>&1 | tee -a compile.log
 
       # Each of these is a claim the release makes. A claim that is not checked is a guess.
       # Each of these is a claim the release makes. A claim that is not checked is a guess.
@@ -117,7 +117,7 @@ jobs:
           note() { echo "::notice::$*"; }
           err()  { echo "::error::$*"; fail=1; }
 
-          apk="app/build/outputs/apk/release/app-release.apk"
+          apk="app/build/outputs/apk/personal/release/app-personal-release.apk"
           tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
           note "build-tools $(basename "$tools")"
           if [ ! -f "$apk" ]; then err "no release APK at $apk"; exit 1; fi
@@ -162,8 +162,10 @@ jobs:
       - name: Name the APK after the version
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk \
-             "dist/page-wallpaper-${{ steps.version.outputs.tag }}.apk"
+          # Named for the build it is. The updater matches on that tag rather than taking the
+          # first .apk, which is what lets a release carry one APK per build later on.
+          cp app/build/outputs/apk/personal/release/app-personal-release.apk \
+             "dist/page-wallpaper-personal-${{ steps.version.outputs.tag }}.apk"
           ls -l dist
 
       - name: Publish the release
@@ -176,5 +178,10 @@ jobs:
 
             Install over your current copy — page assignments and settings are kept.
             In the app, Settings ⇒ Check for updates will find this release by itself.
+
+            This is the **personal** build: applicationId `com.dathaze.pagewall`, signed with the
+            debug key checked into this repository. That key is public, so this APK's signature
+            proves nothing about who built it. The public build, with its own application ID and a
+            private key, is not published yet.
           files: dist/*.apk
           fail_on_unmatched_files: true
