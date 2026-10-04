@@ -36,12 +36,30 @@ jobs:
         # output is kept so the step below can surface just the errors.
         run: set -o pipefail; ./gradlew testDebugUnitTest --no-daemon 2>&1 | tee compile.log
 
-      - name: Show compiler errors
+      # Emitted as ::error:: as well as printed, so a failure is readable from the run's
+      # annotations without opening the log. Gradle's own "What went wrong" is included,
+      # because an incompatible plugin fails there rather than in the compiler.
+      - name: Show what failed
         if: failure()
         run: |
-          echo "::group::Kotlin compiler errors"
-          grep -E '^(e|w): ' compile.log | head -60 || echo "(no compiler diagnostics found)"
+          set +e
+          echo "::group::compiler"
+          grep -E '^(e|w): ' compile.log | head -40
           echo "::endgroup::"
+          grep -E '^e: ' compile.log | head -12 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          echo "::group::gradle"
+          sed -n '/FAILURE: Build failed/,$p' compile.log | head -40
+          echo "::endgroup::"
+          sed -n '/What went wrong/,/^\* Try/p' compile.log | head -12 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
+          done
+          grep -iE 'requires Gradle|requires Java|minimum supported|Unsupported class file|incompatible' \
+            compile.log | sort -u | head -6 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+          exit 0
 
       - name: Verify tests actually executed
         run: |
