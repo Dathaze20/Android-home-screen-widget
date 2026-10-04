@@ -18,6 +18,8 @@ import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
+import com.dathaze.pagewall.update.AppUpdater
+import com.dathaze.pagewall.update.UpdateState
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
 import com.dathaze.pagewall.widget.PageWidgetProvider
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,10 @@ data class ConfigUiState(
     /** The page the wallpaper is actually drawing, as opposed to any offset-derived guess. */
     val displayedPage: Int = 0,
     val onboardingDone: Boolean = false,
+    /** The version of the running build, shown next to the update button. */
+    val appVersionName: String = "",
+    /** Where the in-app updater has got to. Idle until the user taps Check for updates. */
+    val updateState: UpdateState = UpdateState.Idle,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -81,6 +87,7 @@ data class ConfigUiState(
 class ConfigViewModel(application: Application) : AndroidViewModel(application) {
 
     private val store = PageStore(application)
+    private val updater = AppUpdater(application)
 
     var uiState by mutableStateOf(ConfigUiState())
         private set
@@ -135,7 +142,60 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             recognisedSwipes = store.recognisedSwipeCount,
             displayedPage = store.displayedPage,
             onboardingDone = store.onboardingDone,
+            appVersionName = updater.installedVersionName,
         )
+    }
+
+    /**
+     * Asks GitHub whether there is a newer release.
+     *
+     * The whole flow lives in the view model rather than the sheet so that rotating the phone or
+     * closing the sheet mid-download does not lose the progress or start a second download.
+     */
+    fun checkForUpdates() {
+        if (uiState.updateState is UpdateState.Checking) return
+        if (uiState.updateState is UpdateState.Downloading) return
+        uiState = uiState.copy(updateState = UpdateState.Checking)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { updater.check(AppUpdater.GITHUB_REPO) }
+            uiState = uiState.copy(updateState = result)
+        }
+    }
+
+    /** Downloads the release found by [checkForUpdates] and opens Android's installer on it. */
+    fun downloadUpdate() {
+        val update = (uiState.updateState as? UpdateState.Available)?.update ?: return
+        uiState = uiState.copy(updateState = UpdateState.Downloading(0))
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                updater.downloadAndInstall(update) { percent ->
+                    // Called from the download thread; Compose state has to be written from the
+                    // main one, and the guard stops a late report overwriting the final state.
+                    viewModelScope.launch {
+                        if (uiState.updateState is UpdateState.Downloading) {
+                            uiState = uiState.copy(updateState = UpdateState.Downloading(percent))
+                        }
+                    }
+                }
+            }
+            uiState = uiState.copy(updateState = result)
+        }
+    }
+
+    /** Sends the user to the switch that lets this app install an APK. */
+    fun openInstallPermissionSettings() {
+        if (!updater.openInstallPermissionSettings()) {
+            uiState = uiState.copy(
+                updateState = UpdateState.Failed(
+                    "This phone has no \"install unknown apps\" screen to open."
+                )
+            )
+        }
+    }
+
+    /** Puts the update row back to its resting state, e.g. after a failure has been read. */
+    fun dismissUpdateState() {
+        uiState = uiState.copy(updateState = UpdateState.Idle)
     }
 
     fun dismissError() {

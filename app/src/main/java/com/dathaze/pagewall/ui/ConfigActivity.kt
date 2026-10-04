@@ -170,6 +170,10 @@ class ConfigActivity : ComponentActivity() {
                             settingsOpen = false
                             viewModel.restartOnboarding()
                         },
+                        onCheckForUpdates = viewModel::checkForUpdates,
+                        onDownloadUpdate = viewModel::downloadUpdate,
+                        onAllowInstalls = viewModel::openInstallPermissionSettings,
+                        onDismissUpdate = viewModel::dismissUpdateState,
                     )
                 }
             }

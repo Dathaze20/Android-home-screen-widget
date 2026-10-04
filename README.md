@@ -140,6 +140,24 @@ second.
 - **Double-tap the wallpaper.** On launchers that pass the gesture along, a double tap on empty
   home screen space opens the same screen.
 
+### Updating the app
+
+Open **Settings** (the icon at the top of the app) and the first row is **Check for updates**. It
+asks GitHub for the newest release, and if there is one newer than the build you are running it
+offers **Download and install**. The APK is downloaded inside the app and handed to Android's own
+installer, which still asks you to confirm — nothing installs silently. The first time, Android
+will want permission to install apps from Page Wallpaper; the sheet has a button that opens that
+switch.
+
+Your page assignments and settings survive the update. Every build is signed with the same key, so
+the new APK installs over the old one and there is never any need to uninstall first.
+
+Releases come from a tag: pushing `v1.0.1` runs `.github/workflows/release.yml`, which turns the
+tag into a versionCode (`major × 10000 + minor × 100 + patch`, so `v1.0.1` is `10001`), builds the
+APK with that number baked in, and publishes a GitHub Release with it attached. `UpdateVersion`
+reads the tag back by the same rule — that agreement is what lets the app tell "newer" from
+"same", so the two must never drift apart.
+
 ---
 
 ## How it works, for the curious
@@ -166,6 +184,8 @@ the engine starts drawing again.
 | `ui/HomeScreen.kt` | The whole app: a non-scrolling grid of page tiles, with the pickers |
 | `ui/SettingsSheet.kt` | The knobs, behind one icon |
 | `widget/PageWidgetProvider.kt` | The widget |
+| `update/UpdateVersion.kt` | The tag-to-versionCode rule and the update states; no Android imports, so it is unit tested |
+| `update/AppUpdater.kt` | Asks GitHub for the latest release, downloads the APK, hands it to the installer |
 
 Everything you pick is **copied** into the app's own storage rather than linked by URI, so a page
 keeps working after you delete the original from your gallery.
@@ -191,8 +211,9 @@ a phone whose pictures are not changing.
 
 AGP 8.7 / Kotlin 2.0 / compileSdk 35, minSdk 28.
 
-Unit tests cover the page arithmetic (`PageMathTest`) and the swipe thresholds (`SwipeMathTest`)
-and run in CI before every build; no APK is produced if they fail.
+Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
+resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`) and the update version
+rule (`UpdateVersionTest`). They run in CI before every build; no APK is produced if they fail.
 
 Signed with a fixed debug key checked into the repo, so each build installs over the last instead
 of forcing an uninstall. A debug key with the standard debug password, not a release key.

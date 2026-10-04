@@ -4,6 +4,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Releases are tagged v<major>.<minor>.<patch> and the tag is turned into a versionCode by the
+// same rule the in-app updater uses to read it back: major * 10000 + minor * 100 + patch.
+// Keeping the two in step is what lets the update button tell "newer" from "same".
+// See UpdateVersion.codeFromTag and .github/workflows/release.yml.
+val appVersionName: String = System.getenv("APP_VERSION_NAME") ?: "1.0.0"
+val appVersionCode: Int = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 10000
+
 android {
     namespace = "com.dathaze.pagewall"
     compileSdk = 35
@@ -14,8 +21,8 @@ android {
         // are animated. Every phone this targets is well past it.
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {

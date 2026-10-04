@@ -5,6 +5,11 @@
         android:name="android.software.live_wallpaper"
         android:required="true" />
 
+    <!-- Both are for the in-app updater and nothing else: fetch the release from GitHub, then
+         hand the APK to Android's own installer, which still asks the user to confirm. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -63,6 +68,18 @@
                 android:name="android.service.wallpaper"
                 android:resource="@xml/wallpaper" />
         </service>
+
+        <!-- Hands the downloaded APK to the installer. Not exported: only this app can create
+             the URI, and the installer gets read access for that one file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <receiver
             android:name=".widget.PageWidgetProvider"

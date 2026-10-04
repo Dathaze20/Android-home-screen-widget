@@ -10,11 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -35,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
+import com.dathaze.pagewall.update.UpdateState
 
 /**
  * Everything that is not "pick a photo", tucked behind one icon.
@@ -67,6 +72,10 @@ fun SettingsSheet(
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
     onRestartOnboarding: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onAllowInstalls: () -> Unit,
+    onDismissUpdate: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -85,6 +94,16 @@ fun SettingsSheet(
                 fontWeight = FontWeight.Bold,
             )
 
+            SectionHeading("UPDATES")
+            UpdateRow(
+                state = state,
+                onCheckForUpdates = onCheckForUpdates,
+                onDownloadUpdate = onDownloadUpdate,
+                onAllowInstalls = onAllowInstalls,
+                onDismissUpdate = onDismissUpdate,
+            )
+
+            HorizontalDivider()
             SectionHeading("HOME SCREENS")
             PageCountRow(state, onPageCountChange, onResetPageCount)
             HomeSyncRow(state, onDefaultHomePageChange, onSyncOnReturnHomeChange, onSyncWallpaperTo)
@@ -188,6 +207,129 @@ fun SettingsSheet(
 }
 
 /**
+ * Check for updates, and install one without leaving the app.
+ *
+ * The same mechanism as the Music Player Tagger app: the newest GitHub release is compared
+ * against this build's versionCode, and its APK is downloaded and handed to Android's installer.
+ * Android still shows its own confirmation — nothing installs silently.
+ *
+ * It sits first in the sheet on purpose: it is the one row that is looked for rather than
+ * stumbled upon, and nothing here should need scrolling to reach.
+ */
+@Composable
+private fun UpdateRow(
+    state: ConfigUiState,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onAllowInstalls: () -> Unit,
+    onDismissUpdate: () -> Unit,
+) {
+    val update = state.updateState
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Check for updates", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Version ${state.appVersionName.ifEmpty { "unknown" }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (update is UpdateState.Checking) {
+                CircularProgressIndicator(Modifier.height(24.dp).width(24.dp))
+            } else {
+                OutlinedButton(
+                    onClick = onCheckForUpdates,
+                    enabled = update !is UpdateState.Downloading,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Check", maxLines = 1) }
+            }
+        }
+
+        when (update) {
+            UpdateState.Idle, UpdateState.Checking -> Unit
+
+            UpdateState.UpToDate -> UpdateNote("You are on the latest version.")
+
+            is UpdateState.Available -> Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                UpdateNote(
+                    "Version ${update.update.versionName} is available" +
+                        update.update.readableSize.let { if (it.isEmpty()) "." else " ($it)." }
+                )
+                if (update.update.notes.isNotEmpty()) {
+                    Text(
+                        update.update.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    "Installing keeps your screens and settings \u2014 nothing is erased.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = onDownloadUpdate,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("Download and install") }
+            }
+
+            is UpdateState.Downloading -> Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                UpdateNote("Downloading\u2026 ${update.percent}%")
+                LinearProgressIndicator(
+                    progress = { update.percent / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            UpdateState.ReadyToInstall ->
+                UpdateNote("Downloaded. Confirm the install when Android asks.")
+
+            UpdateState.NeedsInstallPermission -> Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                UpdateNote(
+                    "Android needs permission to install from this app. It is a one-time switch."
+                )
+                OutlinedButton(
+                    onClick = onAllowInstalls,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("Open that setting") }
+            }
+
+            is UpdateState.Failed -> Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    update.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(
+                    onClick = onDismissUpdate,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Dismiss") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateNote(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
  * What the launcher is actually telling the wallpaper, plus the calibration that copes with it.
  *
  * Lives behind Advanced diagnostics: these numbers matter when the screens are not changing and
@@ -281,18 +423,6 @@ private fun LauncherReport(
 private fun fmt(value: Float): String =
     if (value < 0f) "none" else String.format("%.3f", value)
 
-/**
- * How a picture is laid out when its shape does not match the screen's.
- *
- * A landscape picture on a tall phone cannot be complete, uncropped, undistorted and reach all
- * four corners at once — the shapes differ, so one of those has to give.
- */
-/**
- * Everything to do with the launcher moving without the wallpaper seeing it.
- *
- * Touch tracking only learns about page changes it observes as gestures, so returning from an
- * app, a restarted engine and any launcher behaviour that cannot be observed need an answer here.
- */
 /** A quiet all-caps rule, so the groups read as groups without heavy chrome. */
 @Composable
 private fun SectionHeading(text: String) {

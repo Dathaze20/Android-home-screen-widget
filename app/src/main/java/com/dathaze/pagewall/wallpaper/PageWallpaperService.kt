@@ -98,6 +98,14 @@ class PageWallpaperService : WallpaperService() {
         /** True while MediaPlayer holds the surface; the canvas must not be locked in that state. */
         private var videoMode = false
 
+        /**
+         * Attempts spent waiting for the surface after a dropped frame.
+         *
+         * Bounded so a surface that never arrives cannot spin the handler; reset whenever a
+         * frame lands or the wallpaper becomes visible again.
+         */
+        private var drawRetries = 0
+
         private var framePending = false
         private val frameRunnable = Runnable {
             framePending = false
@@ -178,6 +186,7 @@ class PageWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
             if (visible) {
+                drawRetries = 0
                 if (!isPreview) syncOnBecomingVisible()
                 render()
                 if (isPreview) handler.postDelayed(previewRunnable, PREVIEW_INTERVAL_MS)
@@ -226,6 +235,7 @@ class PageWallpaperService : WallpaperService() {
             if (width != surfaceWidth || height != surfaceHeight) {
                 surfaceWidth = width
                 surfaceHeight = height
+                drawRetries = 0
                 // Decode targets are sized from the surface, so the cache is stale after a resize.
                 cache.clear()
                 outgoing = null
@@ -578,6 +588,13 @@ class PageWallpaperService : WallpaperService() {
             return cache.get(file, surfaceWidth, surfaceHeight, drawableCallback)
         }
 
+        /** Re-attempts a frame the surface was not ready for, up to a fixed budget. */
+        private fun retryDraw() {
+            if (drawRetries >= MAX_DRAW_RETRIES) return
+            drawRetries++
+            requestFrame(DRAW_RETRY_MS)
+        }
+
         /** Coalesced redraw request, so a burst of invalidations still costs one frame. */
         private fun requestFrame(delayMillis: Long) {
             if (!visible || videoMode || framePending) return
@@ -589,7 +606,14 @@ class PageWallpaperService : WallpaperService() {
             if (!visible || videoMode) return
 
             val holder = surfaceHolder
-            if (!holder.surface.isValid) return
+            // Becoming visible and the surface becoming usable are not the same moment. Pressing
+            // Home syncs the page correctly, but the draw that should follow it lands before the
+            // surface is ready, and a dropped frame leaves the previous picture on screen with
+            // nothing scheduled to replace it — the page is right internally and wrong visually.
+            if (!holder.surface.isValid) {
+                retryDraw()
+                return
+            }
 
             val current = canvasDrawableFor(currentPage)
             syncAnimation(current)
@@ -604,7 +628,11 @@ class PageWallpaperService : WallpaperService() {
             var canvas: Canvas? = null
             try {
                 canvas = holder.lockCanvas()
-                if (canvas != null) {
+                if (canvas == null) {
+                    // The surface says it is valid but will not hand over a canvas yet; same
+                    // dropped-frame problem, same answer.
+                    retryDraw()
+                } else {
                     // Never let one unusual file kill the engine. An exception escaping here
                     // takes the whole wallpaper service down, and the system restarts it into
                     // the same failure, so the home screen stays black until the app is
@@ -624,6 +652,9 @@ class PageWallpaperService : WallpaperService() {
             } finally {
                 if (canvas != null) runCatching { holder.unlockCanvasAndPost(canvas) }
             }
+            if (canvas == null) return
+            // A frame actually reached the screen, so the retry budget starts fresh next time.
+            drawRetries = 0
 
             if (progress < 1f) {
                 requestFrame(FRAME_INTERVAL_MS)
@@ -659,6 +690,9 @@ class PageWallpaperService : WallpaperService() {
         const val TAG = "PageWallpaper"
         const val COMMAND_TAP = "android.wallpaper.tap"
         const val FRAME_INTERVAL_MS = 16L
+        const val DRAW_RETRY_MS = 32L
+        /** About a second of waiting for a surface, then give up rather than spin. */
+        const val MAX_DRAW_RETRIES = 30
         const val PREVIEW_INTERVAL_MS = 2_500L
         const val OFFSET_EPSILON = 0.001f
         const val DIAGNOSTICS_INTERVAL_MS = 400L

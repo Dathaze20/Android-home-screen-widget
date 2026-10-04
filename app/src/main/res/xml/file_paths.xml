@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The one directory the update downloader writes to. Nothing else is shared: the page photos live
+  in private storage and never leave the app, so there is no entry for them here.
+-->
+<paths>
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>
