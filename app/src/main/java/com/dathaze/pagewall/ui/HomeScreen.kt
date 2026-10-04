@@ -7,7 +7,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,32 +15,34 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Gif
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -58,6 +59,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
@@ -79,7 +81,6 @@ import com.dathaze.pagewall.data.PageStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.ceil
 
 /** Transitions stay in this range: present enough to read, short enough not to feel slow. */
 private const val TRANSITION_MS = 200
@@ -87,9 +88,12 @@ private const val TRANSITION_MS = 200
 /**
  * The control centre: every home screen page as a panel, and one primary action.
  *
- * Sized to the display rather than scrolled, so the whole set is visible at once. The grid drops
- * to two columns up to six screens so the pictures stay large, and only goes to three beyond that
- * — the alternative was uniformly tiny thumbnails.
+ * Three fixed parts — a bar with the menu, the scrolling grid of screens, and a pinned action bar
+ * — rather than one column sized to the display. The old version gave the grid whatever height
+ * was left over, so on a phone with the display font turned up the header and the buttons took
+ * the lot and the pictures were squeezed down to nothing. Tiles are sized from the column width
+ * now, and the middle scrolls if it has to, so the pictures are always the right size and nothing
+ * can end up out of reach.
  */
 @Composable
 fun HomeScreen(
@@ -108,6 +112,7 @@ fun HomeScreen(
 ) {
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
     var confirmClearPage by remember { mutableStateOf<Int?>(null) }
+    var confirmReplaceAll by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
     val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
@@ -134,51 +139,91 @@ fun HomeScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        StatusHeader(state, assignedCount, onOpenSettings)
+        MenuBar(state, onOpenSettings)
 
-        PageGrid(
+        Column(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            state = state,
-            thumbnailFor = thumbnailFor,
-            onTapPage = { index ->
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                if (state.pages.getOrNull(index)?.hasMedia == true) {
-                    // A configured screen opens its details rather than dropping straight into a
-                    // picker, so changing a soundtrack does not mean replacing the picture.
-                    onOpenPageDetails(index)
-                } else {
-                    pendingPage = index
-                    singlePicker.launch(request)
-                }
-            },
-            onLongPressPage = { index ->
-                if (state.pages.getOrNull(index)?.hasMedia == true) {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    confirmClearPage = index
-                }
-            },
-        )
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(top = 4.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            StatusHeader(state, assignedCount)
 
-        val banner = state.errorMessage ?: state.noticeMessage
-        if (banner != null) {
-            MessageBanner(banner, state.errorMessage != null, onDismissError)
+            PageGrid(
+                modifier = Modifier.fillMaxWidth(),
+                state = state,
+                thumbnailFor = thumbnailFor,
+                onTapPage = { index ->
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (state.pages.getOrNull(index)?.hasMedia == true) {
+                        // A configured screen opens its details rather than dropping straight into a
+                        // picker, so changing a soundtrack does not mean replacing the picture.
+                        onOpenPageDetails(index)
+                    } else {
+                        pendingPage = index
+                        singlePicker.launch(request)
+                    }
+                },
+                onLongPressPage = { index ->
+                    if (state.pages.getOrNull(index)?.hasMedia == true) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        confirmClearPage = index
+                    }
+                },
+            )
+
+            val banner = state.errorMessage ?: state.noticeMessage
+            if (banner != null) {
+                MessageBanner(banner, state.errorMessage != null, onDismissError)
+            }
         }
 
-        PrimaryActions(
-            state = state,
-            assignedCount = assignedCount,
-            onApplyWallpaper = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onApplyWallpaper()
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        // Pinned below the scrolling area. Setting the wallpaper is the one thing that must never
+        // be somewhere the user has to go looking for.
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+            PrimaryActions(
+                state = state,
+                assignedCount = assignedCount,
+                onApplyWallpaper = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onApplyWallpaper()
+                },
+                // Filling the pages overwrites screen 1 onwards in pick order, so when there
+                // is something to lose, say so first. One stray tap used to clear the lot.
+                onChangeMedia = {
+                    if (assignedCount > 0) confirmReplaceAll = true
+                    else multiPicker.launch(request)
+                },
+                onOpenSettings = onOpenSettings,
+            )
+        }
+    }
+
+    if (confirmReplaceAll) {
+        AlertDialog(
+            onDismissRequest = { confirmReplaceAll = false },
+            title = { Text("Replace every screen?") },
+            text = {
+                Text(
+                    "The pictures you pick go onto screens 1, 2, 3 and so on, replacing what is " +
+                        "there now. To change one screen only, tap that screen instead."
+                )
             },
-            onChangeMedia = { multiPicker.launch(request) },
-            onOpenSettings = onOpenSettings,
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReplaceAll = false
+                    multiPicker.launch(request)
+                }) { Text("Choose photos") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReplaceAll = false }) { Text("Cancel") }
+            },
         )
     }
 
@@ -203,42 +248,57 @@ fun HomeScreen(
     }
 }
 
+/**
+ * The bar across the top: the menu on the left, the app's name, and whether it is running.
+ *
+ * The menu is the left-hand button because that is where a menu is reached for, and because the
+ * cog that used to carry it sat on the right of a header that scrolled away with everything else.
+ */
 @Composable
-private fun StatusHeader(state: ConfigUiState, assignedCount: Int, onOpenSettings: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "PAGE WALLPAPER",
-                style = MaterialTheme.typography.labelSmall,
-                color = PageWallColors.TextSecondary,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (state.wallpaperActive) "Active" else "Not set up",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = PageWallColors.TextPrimary,
-                )
-                if (state.wallpaperActive) {
-                    Spacer(Modifier.width(10.dp))
-                    StatusPill()
-                }
-            }
-            Text(
-                text = statusLine(state, assignedCount),
-                style = MaterialTheme.typography.bodySmall,
-                color = PageWallColors.TextSecondary,
+private fun MenuBar(state: ConfigUiState, onOpenMenu: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 20.dp, top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onOpenMenu, modifier = Modifier.size(48.dp)) {
+            Icon(
+                Icons.Default.Menu,
+                contentDescription = "Menu and settings",
+                tint = PageWallColors.Cyan,
             )
         }
-        // 48dp so the target is reachable even though the glyph is small.
-        OutlinedButton(
-            onClick = onOpenSettings,
-            shape = CircleShape,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-            modifier = Modifier.size(48.dp),
-        ) {
-            Icon(Icons.Default.Tune, contentDescription = "Settings", tint = PageWallColors.Cyan)
-        }
+        Text(
+            "Page Wallpaper",
+            style = MaterialTheme.typography.titleMedium,
+            color = PageWallColors.TextPrimary,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (state.wallpaperActive) StatusPill()
+    }
+}
+
+@Composable
+private fun StatusHeader(state: ConfigUiState, assignedCount: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            if (state.wallpaperActive) "Your home screens" else "Not set up yet",
+            style = MaterialTheme.typography.headlineSmall,
+            color = PageWallColors.TextPrimary,
+        )
+        Text(
+            text = statusLine(state, assignedCount),
+            style = MaterialTheme.typography.bodySmall,
+            color = PageWallColors.TextSecondary,
+        )
+        Text(
+            "Tap a screen to change it · long-press to clear it",
+            style = MaterialTheme.typography.bodySmall,
+            color = PageWallColors.TextSecondary,
+        )
     }
 }
 
@@ -275,6 +335,14 @@ private fun statusLine(state: ConfigUiState, assignedCount: Int): String = when 
     else -> "$assignedCount of ${state.pageCount} screens ready"
 }
 
+/**
+ * Every home screen as a tile.
+ *
+ * Each tile's height comes from its own width via [GridLayout.TILE_ASPECT], not from whatever
+ * vertical space happens to be left over. That is the whole point: leftover space depends on how
+ * tall the text around it is, so on a phone with a large display font the pictures used to
+ * disappear. A tile shaped like a phone, sized from the column, cannot.
+ */
 @Composable
 private fun PageGrid(
     modifier: Modifier,
@@ -284,25 +352,23 @@ private fun PageGrid(
     onLongPressPage: (Int) -> Unit,
 ) {
     val pages = state.pages
-    // Two columns keeps the pictures large; three only once there are too many to fit otherwise.
-    val columns = if (pages.size <= 6) 2 else 3
-    val rows = ceil(pages.size / columns.toFloat()).toInt().coerceAtLeast(1)
+    val columns = GridLayout.columnsFor(pages.size)
+    val rows = GridLayout.rowsFor(pages.size, columns)
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         repeat(rows) { row ->
             Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 repeat(columns) { column ->
                     val index = row * columns + column
+                    val tile = Modifier
+                        .weight(1f)
+                        .aspectRatio(GridLayout.TILE_ASPECT)
                     if (index < pages.size) {
                         PageCard(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
+                            modifier = tile,
                             page = pages[index],
                             thumbnail = thumbnailFor(pages[index]),
                             isTracked = state.wallpaperActive && state.displayedPage == index,
@@ -310,7 +376,8 @@ private fun PageGrid(
                             onLongPress = { onLongPressPage(index) },
                         )
                     } else {
-                        Spacer(Modifier.weight(1f))
+                        // Keeps the last row's tiles the same width as every other row's.
+                        Spacer(tile)
                     }
                 }
             }
@@ -515,7 +582,7 @@ private fun PrimaryActions(
                 enabled = !state.busy,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) { Text("Change media", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            ) { Text("Change photos", maxLines = 1, overflow = TextOverflow.Ellipsis) }
 
             OutlinedButton(
                 onClick = onOpenSettings,
