@@ -96,7 +96,9 @@ class PageAudioController(context: Context) {
             runCatching {
                 if (active.isPlaying) active.stop()
             }
-            active.release()
+            // Wrapped like the stop above it. stop() is called from onVisibilityChanged, and an
+            // exception escaping there takes the wallpaper engine down with it.
+            runCatching { active.release() }
         }
         player = null
         playingFile = null
