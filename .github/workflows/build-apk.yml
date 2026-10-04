@@ -30,6 +30,24 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           python3 scripts/check-dangling-refs.py origin/main
 
+      # Temporary. This container cannot reach Google's Maven, so the runner reports what is
+      # actually published rather than the versions being guessed at. Removed once pinned.
+      - name: What versions exist
+        run: |
+          set -uo pipefail
+          g() {
+            v=$(curl -sSL --max-time 30 "https://dl.google.com/dl/android/maven2/$1/maven-metadata.xml" \
+              | grep -oP '(?<=<version>)[^<]+' \
+              | grep -vEi 'alpha|beta|rc|dev|snapshot' | tail -3 | tr '\n' ' ')
+            echo "::notice::$2 = ${v:-unresolved}"
+          }
+          g "com/android/tools/build/gradle" "AGP"
+          g "androidx/compose/compose-bom" "compose-bom"
+          g "androidx/core/core-ktx" "core-ktx"
+          g "androidx/lifecycle/lifecycle-runtime-ktx" "lifecycle"
+          g "androidx/activity/activity-compose" "activity-compose"
+          g "androidx/exifinterface/exifinterface" "exifinterface"
+
       - name: Run unit tests
         # No --stacktrace: it buries the handful of "e: file://..." compiler lines under ~160
         # lines of Gradle internals, which makes a failure unreadable from the log tail. The
