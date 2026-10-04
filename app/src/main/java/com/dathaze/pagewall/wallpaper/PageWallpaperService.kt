@@ -99,6 +99,15 @@ class PageWallpaperService : WallpaperService() {
         private var videoMode = false
 
         /**
+         * Clips MediaPlayer has refused, so the engine stops handing the surface to a decoder
+         * that will only fail again and draws the saved poster frame instead.
+         *
+         * Cleared when the page assignments change, because the file behind a page may well be a
+         * different one by then.
+         */
+        private val unplayableVideos = mutableSetOf<String>()
+
+        /**
          * Attempts spent waiting for the surface after a dropped frame.
          *
          * Bounded so a surface that never arrives cannot spin the handler; reset whenever a
@@ -149,6 +158,13 @@ class PageWallpaperService : WallpaperService() {
             // every page showing the same picture.
             setOffsetNotificationsEnabled(true)
             store.registerListener(this)
+            // A clip that will not play must not leave the surface in nobody's hands: come out of
+            // video mode and draw its poster frame on the canvas instead.
+            video.onPlaybackFailed = { path ->
+                unplayableVideos += path
+                videoMode = false
+                if (visible) drawFrame()
+            }
             // Seed the decode target from the display so a first frame arriving before
             // onSurfaceChanged does not decode at full resolution for nothing.
             resources.displayMetrics.let {
@@ -460,9 +476,17 @@ class PageWallpaperService : WallpaperService() {
                 PageStore.KEY_TOUCH_RAW,
                 PageStore.KEY_SWIPES,
                 PageStore.KEY_DISPLAYED_PAGE,
+                // These three were missing, and they are written by recordTouch on the very next
+                // line after a swipe starts a crossfade. The fall-through at the bottom of this
+                // method clears `outgoing`, so under touch tracking every page change had its
+                // fade cut a few milliseconds in and snapped instead.
+                PageStore.KEY_TOUCH_EVENTS,
+                PageStore.KEY_LAST_SWIPE,
+                PageStore.KEY_DETECTION_MODE,
                 PageStore.KEY_SYNC_PAGE -> return
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
+                    unplayableVideos.clear()
                     cache.clear()
                     renderer.clearCaches()
                     // The media on this page may have been replaced under the player's feet.
@@ -537,7 +561,7 @@ class PageWallpaperService : WallpaperService() {
 
             val config = store.page(currentPage)
             val videoFile = if (config.mediaKind == MediaKind.VIDEO && store.motionEnabled) {
-                store.fileFor(config.mediaFile)
+                store.fileFor(config.mediaFile)?.takeIf { it.absolutePath !in unplayableVideos }
             } else {
                 null
             }

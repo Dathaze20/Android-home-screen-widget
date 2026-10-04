@@ -8,8 +8,8 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.util.LruCache
 import com.dathaze.pagewall.data.PhotoFit
+import java.util.WeakHashMap
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -40,8 +40,14 @@ class PageRenderer {
      * acceleration, which `lockCanvas` does not give. Scaling a picture down to a few dozen
      * pixels and stretching it back out with bilinear filtering costs almost nothing and looks
      * like a heavy gaussian, which is exactly what a backdrop wants.
+     *
+     * Weak keys, because the key is the picture's own drawable. An LRU keyed on it held the last
+     * few drawables alive after [PageMediaCache] had evicted them, so the page cache's limit no
+     * longer bounded anything and a wallpaper process could be carrying several full-screen
+     * bitmaps nobody was going to draw. Each value here is only a few kilobytes, and an entry now
+     * disappears with the picture it belongs to.
      */
-    private val blurCache = object : LruCache<Drawable, Bitmap>(BLUR_CACHE_ENTRIES) {}
+    private val blurCache = WeakHashMap<Drawable, Bitmap>()
 
     /**
      * @param outgoing the page being faded out, or null when there is nothing to fade from
@@ -191,7 +197,7 @@ class PageRenderer {
         return small
     }
 
-    fun clearCaches() = blurCache.evictAll()
+    fun clearCaches() = blurCache.clear()
 
     /** Shown for a page with nothing assigned, so an empty slot reads as empty rather than broken. */
     private fun drawPlaceholder(canvas: Canvas, pageLabel: Int, progress: Float) {
@@ -213,7 +219,6 @@ class PageRenderer {
     private companion object {
         /** Width of the shrunken copy. Small enough that stretching it back out reads as a blur. */
         const val BLUR_WIDTH = 32
-        const val BLUR_CACHE_ENTRIES = 4
         const val BACKDROP_DIM = 110f
         const val CENTER_PAN = 0.5f
     }

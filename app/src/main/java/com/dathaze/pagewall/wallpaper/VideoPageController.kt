@@ -19,6 +19,16 @@ import java.io.File
  */
 class VideoPageController {
 
+    /**
+     * Called when a clip cannot be played, so the engine can stop waiting for a frame that is
+     * never coming and draw the poster instead.
+     *
+     * Without it a failed video left the engine in video mode with no player: it had stopped
+     * drawing to the canvas and nothing was decoding to the surface, so that page stayed black
+     * for as long as the wallpaper was running. Set by the engine, with the failing file's path.
+     */
+    var onPlaybackFailed: ((String) -> Unit)? = null
+
     private val attributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
@@ -84,6 +94,7 @@ class VideoPageController {
                     // Qualified: a bare stop() here would hit MediaPlayer.stop(), leaving this
                     // controller believing it still owns the surface.
                     this@VideoPageController.stop()
+                    onPlaybackFailed?.invoke(file.absolutePath)
                     true
                 }
                 prepareAsync()
