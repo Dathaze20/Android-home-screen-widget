@@ -40,6 +40,20 @@ android {
 
     buildTypes {
         release {
+            // Signed with the same checked-in key every build has used. Without this the release
+            // variant would be signed differently from what is already installed and Android
+            // would refuse the update, forcing an uninstall — which wipes every page assignment.
+            signingConfig = signingConfigs.getByName("debug")
+
+            // Deliberately off, and not an oversight.
+            //
+            // PhotoFit, TouchCompatibility and MediaKind are persisted to SharedPreferences by
+            // Enum.name and read back with valueOf. R8 is free to rename those constants, and a
+            // renamed constant means valueOf throws on a value written by the previous build:
+            // photo fit, Samsung compatibility and every page's media kind silently reset. The
+            // saving from shrinking is real but it is not worth risking settings on a change
+            // that cannot be tested here. If it is ever turned on it needs explicit keep rules
+            // for com.dathaze.pagewall.data and its own release to be tested in.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

@@ -77,20 +77,67 @@ jobs:
           if [ "${total:-0}" -lt 1 ]; then echo "No tests executed."; exit 1; fi
           if [ "${failures:-0}" -ne 0 ] || [ "${errors:-0}" -ne 0 ]; then exit 1; fi
 
-      # Deliberately the debug variant: it is signed with the checked-in debug.keystore, which is
-      # the same key every build so far has used. A release-signed APK carries a different key and
-      # Android refuses to install it over what is already on the phone — the update would fail
-      # and the only way through would be an uninstall, which wipes every page assignment.
+      # The release variant, signed with the same checked-in debug.keystore every build has used.
+      # The key is what lets an update install over what is on the phone; the variant is what
+      # keeps Compose's layout-inspector tooling — developer-only, and megabytes of it — out of
+      # the APK people actually download.
       - name: Build the APK
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           APP_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: set -o pipefail; ./gradlew assembleDebug --no-daemon 2>&1 | tee -a compile.log
+        run: set -o pipefail; ./gradlew assembleRelease --no-daemon 2>&1 | tee -a compile.log
+
+      # Each of these is a claim the release makes. A claim that is not checked is a guess.
+      - name: Verify the APK before it is published
+        run: |
+          set -e
+          apk="app/build/outputs/apk/release/app-release.apk"
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          echo "build-tools: $tools"
+
+          echo "::group::Signed, and with which certificate"
+          "$tools/apksigner" verify --print-certs "$apk"
+          echo "::endgroup::"
+
+          # The identity that decides whether an update installs or demands an uninstall.
+          digest="$("$tools/apksigner" verify --print-certs "$apk" \
+            | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+          expected="$(keytool -list -v -keystore app/debug.keystore -storepass android \
+            -alias androiddebugkey 2>/dev/null \
+            | grep -i 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
+          echo "apk cert:      $digest"
+          echo "keystore cert: $expected"
+          if [ "$digest" != "$expected" ]; then
+            echo "Signed with the wrong key: this would not install over the previous build."
+            exit 1
+          fi
+
+          # The package the installer matches against. A change here orphans every install.
+          pkg="$("$tools/aapt2" dump packagename "$apk")"
+          echo "package: $pkg"
+          [ "$pkg" = "com.dathaze.pagewall" ] || { echo "Wrong applicationId."; exit 1; }
+
+          # AndroidX libraries each drop a META-INF/<group>_<artifact>.version marker into the
+          # APK, so this names what is actually packaged rather than what we hope is.
+          if unzip -l "$apk" | grep -qi 'ui-tooling'; then
+            echo "Debug tooling is packaged in the release APK."
+            unzip -l "$apk" | grep -i 'ui-tooling'
+            exit 1
+          fi
+          echo "No Compose tooling in the release APK."
+
+          bytes=$(stat -c%s "$apk")
+          echo "size: $bytes bytes ($((bytes / 1000000)) MB)"
+          # v1.0.4, the debug-variant build, was 56665788 bytes.
+          if [ "$bytes" -ge 50000000 ]; then
+            echo "Not materially smaller than the 56.6 MB it replaces."
+            exit 1
+          fi
 
       - name: Name the APK after the version
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk \
+          cp app/build/outputs/apk/release/app-release.apk \
              "dist/page-wallpaper-${{ steps.version.outputs.tag }}.apk"
           ls -l dist
 

@@ -61,6 +61,43 @@ jobs:
       - name: Build debug APK
         run: set -o pipefail; ./gradlew assembleDebug --no-daemon 2>&1 | tee -a compile.log
 
+      # Built here too, so what gets published is proven on every push rather than first tried
+      # at release time. Same checks the release workflow runs before it attaches anything.
+      - name: Build release APK and check what it contains
+        run: |
+          set -e
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee -a compile.log
+          apk="app/build/outputs/apk/release/app-release.apk"
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+
+          "$tools/apksigner" verify --print-certs "$apk"
+          digest="$("$tools/apksigner" verify --print-certs "$apk" \
+            | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
+          expected="$(keytool -list -v -keystore app/debug.keystore -storepass android \
+            -alias androiddebugkey 2>/dev/null \
+            | grep -i 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
+          [ "$digest" = "$expected" ] || { echo "Release APK signed with the wrong key."; exit 1; }
+
+          pkg="$("$tools/aapt2" dump packagename "$apk")"
+          [ "$pkg" = "com.dathaze.pagewall" ] || { echo "applicationId changed: $pkg"; exit 1; }
+
+          unzip -l "$apk" | grep -qi 'ui-tooling' && { echo "Debug tooling packaged."; exit 1; }
+
+          debug_bytes=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk)
+          rel_bytes=$(stat -c%s "$apk")
+          echo "package=$pkg signed=ok tooling=absent"
+          echo "debug APK:   $debug_bytes bytes"
+          echo "release APK: $rel_bytes bytes"
+          echo "saved:       $((debug_bytes - rel_bytes)) bytes"
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-wallpaper-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
       # Always, not just on failure: a green tick proves the task succeeded, not that any
       # test actually ran. Gradle reports success on a cache hit too, so the report is the
       # only evidence of how many tests executed.
