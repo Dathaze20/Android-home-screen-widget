@@ -12,10 +12,12 @@ val appVersionCode: Int = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 10
 
 android {
     namespace = "com.dathaze.pagewall"
-    // Compiled against 36, still targeting 35. compileSdk is what the newer AndroidX and Compose
-    // releases need to build; targetSdk is what changes how Android treats the app at runtime, so
-    // it stays where it is. Raising it is a behaviour change and belongs in its own release.
-    compileSdk = 36
+    // Compiled against 37, still targeting 35. Compose BOM 2026.09 refuses to build against
+    // anything lower — its AAR metadata says so outright. compileSdk only decides which APIs are
+    // on the compile classpath; targetSdk is the one that changes how Android treats the app at
+    // runtime, so it stays where it is. Raising that is a behaviour change and needs its own
+    // release to be tested in.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.dathaze.pagewall"
