@@ -180,7 +180,16 @@ class PageWallpaperService : WallpaperService() {
                 surfaceWidth = it.widthPixels
                 surfaceHeight = it.heightPixels
             }
-            registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            // Wrapped, because this runs during engine creation and an exception escaping here
+            // kills the wallpaper service. The system restarts it straight back into the same
+            // failure, so the home screen stays blank and the app's own process is taken down
+            // with it. That is exactly what adding a second action to this filter caused in
+            // v1.0.2: targetSdk 35 requires RECEIVER_EXPORTED or RECEIVER_NOT_EXPORTED unless
+            // every action is a protected system broadcast, and it threw SecurityException on
+            // the spot. Losing a screen-off hint is a small thing; losing the wallpaper is not.
+            runCatching {
+                registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            }.onFailure { Log.w(TAG, "Could not watch for screen-off", it) }
 
             // A recreated engine cannot recover the launcher's page from a frozen offset, and the
             // stored page may be arbitrarily stale, so touch tracking starts from the configured
