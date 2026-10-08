@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.dathaze.pagewall.backup.BackupState
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
 import kotlinx.coroutines.launch
 
@@ -65,6 +66,12 @@ class ConfigActivity : ComponentActivity() {
                 val audioPicker = rememberLauncherForActivityResult(
                     ActivityResultContracts.GetContent()
                 ) { uri -> uri?.let { viewModel.assignAudio(audioTarget, it) } }
+
+                // OpenDocument rather than GetContent: it reaches Drive and every other
+                // provider, and the chooser is the one people already know from Downloads.
+                val backupPicker = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument()
+                ) { uri -> uri?.let { viewModel.inspectBackup(it) } }
 
                 val onboardingMediaPicker = rememberLauncherForActivityResult(
                     ActivityResultContracts.PickMultipleVisualMedia(
@@ -175,6 +182,26 @@ class ConfigActivity : ComponentActivity() {
                         onDownloadUpdate = viewModel::downloadUpdate,
                         onAllowInstalls = viewModel::openInstallPermissionSettings,
                         onDismissUpdate = viewModel::dismissUpdateState,
+                        onExportBackup = viewModel::exportBackup,
+                        // Zip first, then the catch-alls: some file managers hand a .zip back
+                        // as octet-stream, and filtering to zip alone hides the backup from
+                        // the person looking straight at it.
+                        onImportBackup = {
+                            backupPicker.launch(
+                                arrayOf("application/zip", "application/octet-stream", "*/*")
+                            )
+                        },
+                        onConfirmRestore = viewModel::confirmRestore,
+                        onDismissBackup = viewModel::dismissBackupState,
+                    )
+                }
+
+                // Outside the sheet: a dialog inside a ModalBottomSheet is clipped by it.
+                (state.backupState as? BackupState.Reviewing)?.let { review ->
+                    RestoreConfirmDialog(
+                        review = review,
+                        onConfirm = viewModel::confirmRestore,
+                        onDismiss = viewModel::dismissBackupState,
                     )
                 }
             }

@@ -383,6 +383,39 @@ class PageStore(context: Context) {
     fun fileFor(name: String?): File? =
         name?.let { File(mediaDir, it) }?.takeIf { it.exists() }
 
+    /**
+     * One preference's stored value, whatever type it was written as.
+     *
+     * Used only by the backup, which has to carry a setting without knowing in advance what
+     * kind of thing it is. Returns null for anything never set, so a backup records only what
+     * the person actually changed rather than freezing this build's defaults into a file that
+     * outlives them.
+     */
+    fun rawSetting(key: String): Any? = prefs.all[key]
+
+    /**
+     * Writes restored settings back, in one commit.
+     *
+     * Only keys the caller has already filtered are written — [com.dathaze.pagewall.backup
+     * .BackupSettings] decides what may be restored, and this does not second-guess it. One
+     * edit rather than one per key, so a restore cannot be observed half-applied by the engine
+     * listening on the other side.
+     */
+    fun applySettings(values: Map<String, Any>) {
+        if (values.isEmpty()) return
+        prefs.edit().apply {
+            values.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> putBoolean(key, value)
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
+                    is String -> putString(key, value)
+                }
+            }
+        }.apply()
+    }
+
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }
