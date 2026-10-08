@@ -501,6 +501,17 @@ private fun BackupRow(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         ) { Text("Import backup") }
 
+        // Verification is not a third button, because it is not a third thing: importing
+        // already reads and checks every file before it offers to do anything. Saying so is
+        // what turns that into something you can use on purpose.
+        Text(
+            "Import checks the file first and shows you what is inside it. Tapping Cancel at " +
+                "that point tells you a backup is complete and readable without changing " +
+                "anything \u2014 which is how to check an old backup is still good.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         when (backup) {
             BackupState.Idle -> Unit
 
