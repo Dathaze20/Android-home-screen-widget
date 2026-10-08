@@ -241,20 +241,61 @@ jobs:
           rm -f "$store"
           exit $fail
 
+      # Written from what the build actually produced, not from a fixed paragraph. The notes
+      # used to say the public build "is not published yet" and kept saying it after it was.
+      - name: Write the release notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          CODE: ${{ steps.version.outputs.code }}
+          HAVE_PUBLIC: ${{ steps.key.outputs.available }}
+        run: |
+          set -eu
+          {
+            echo "Page Wallpaper $TAG — versionCode $CODE"
+            echo
+            echo "## Which file do I want?"
+            echo
+            if [ "$HAVE_PUBLIC" = "true" ]; then
+              echo "**Most people want \`page-wallpaper-public-$TAG.apk\`.** It is the public build:"
+              echo "application ID \`io.github.dathaze20.pagewallpaper\`, signed with a private release"
+              echo "key that is not in this repository."
+              echo
+              echo "\`page-wallpaper-personal-$TAG.apk\` is the maintainer's own build"
+              echo "(\`com.dathaze.pagewall\`). It is signed with the debug keystore checked into this"
+              echo "repository, so its signature proves nothing about who built it. It exists so an"
+              echo "install that predates the split keeps updating. Install it only if you already"
+              echo "run that build."
+            else
+              echo "Only \`page-wallpaper-personal-$TAG.apk\` is attached to this release"
+              echo "(\`com.dathaze.pagewall\`), signed with the debug keystore checked into this"
+              echo "repository — its signature proves nothing about who built it. No public build"
+              echo "was produced for this tag."
+            fi
+            echo
+            echo "## Installing"
+            echo
+            echo "Download the APK on your phone and tap it. Android will ask to allow installs"
+            echo "from your browser or file manager; that prompt is normal for anything not from"
+            echo "the Play Store."
+            echo
+            echo "The two builds are separate apps and can be installed side by side. Neither can"
+            echo "update the other: they have different application IDs and different signing"
+            echo "keys, which is deliberate."
+            echo
+            echo "## Updating"
+            echo
+            echo "Installs over your existing copy of the same build. Page assignments and"
+            echo "settings are kept, and there is no need to uninstall. In the app,"
+            echo "**Menu → Settings → Check for updates** finds this release by itself and picks"
+            echo "the APK matching the build you are running."
+          } > NOTES.md
+          cat NOTES.md
+
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Page Wallpaper ${{ steps.version.outputs.tag }}
-          body: |
-            versionCode ${{ steps.version.outputs.code }}
-
-            Install over your current copy — page assignments and settings are kept.
-            In the app, Settings ⇒ Check for updates will find this release by itself.
-
-            This is the **personal** build: applicationId `com.dathaze.pagewall`, signed with the
-            debug key checked into this repository. That key is public, so this APK's signature
-            proves nothing about who built it. The public build, with its own application ID and a
-            private key, is not published yet.
+          body_path: NOTES.md
           files: dist/*.apk
           fail_on_unmatched_files: true
