@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
-import com.dathaze.pagewall.backup.BackupState
 import com.dathaze.pagewall.backup.ConflictChoice
 import com.dathaze.pagewall.update.UpdateState
 
@@ -244,10 +243,6 @@ private fun UpdateRow(
     onDownloadUpdate: () -> Unit,
     onAllowInstalls: () -> Unit,
     onDismissUpdate: () -> Unit,
-    onExportBackup: () -> Unit,
-    onImportBackup: () -> Unit,
-    onConfirmRestore: (ConflictChoice, Boolean) -> Unit,
-    onDismissBackup: () -> Unit,
 ) {
     val update = state.updateState
 

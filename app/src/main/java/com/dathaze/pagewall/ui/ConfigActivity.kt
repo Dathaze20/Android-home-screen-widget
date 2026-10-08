@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.dathaze.pagewall.backup.BackupState
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
 import kotlinx.coroutines.launch
 
