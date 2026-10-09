@@ -14,11 +14,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -39,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.dathaze.pagewall.data.PageStore
 import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
+import com.dathaze.pagewall.backup.ConflictChoice
 import com.dathaze.pagewall.update.UpdateState
 
 /**
@@ -77,6 +81,10 @@ fun SettingsSheet(
     onDownloadUpdate: () -> Unit,
     onAllowInstalls: () -> Unit,
     onDismissUpdate: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    onConfirmRestore: (ConflictChoice, Boolean) -> Unit,
+    onDismissBackup: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -103,6 +111,10 @@ fun SettingsSheet(
                 onAllowInstalls = onAllowInstalls,
                 onDismissUpdate = onDismissUpdate,
             )
+
+            HorizontalDivider()
+            SectionHeading("BACKUP")
+            BackupRow(state, onExportBackup, onImportBackup, onDismissBackup)
 
             HorizontalDivider()
             SectionHeading("HOME SCREENS")
@@ -450,6 +462,253 @@ private fun SectionHeading(text: String) {
  * the wallpaper has been replaced by something else and the app looks idle. The reassurance is
  * not decoration: re-applying used to look like it had wiped the screens, and it never has.
  */
+/**
+ * Export and import, in that order, with everything the restore needs to be safe.
+ *
+ * Export writes straight into Downloads without asking anything, because there is no decision
+ * to make. Import asks twice over: once by showing what the backup actually contains, and again
+ * about pages that already have something on them. Nothing is written until both are answered.
+ */
+@Composable
+private fun BackupRow(
+    state: ConfigUiState,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val backup = state.backupState
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Your pages and settings, in one file", fontWeight = FontWeight.SemiBold)
+        Text(
+            "The backup holds the actual pictures, GIFs and videos as well as the page " +
+                "assignments and settings \u2014 they live inside the app, so nothing else on " +
+                "your phone has a copy of them.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        val busy = backup is BackupState.Working
+        Button(
+            onClick = onExportBackup,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Export backup to Downloads") }
+
+        OutlinedButton(
+            onClick = onImportBackup,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Import backup") }
+
+        // Verification is not a third button, because it is not a third thing: importing
+        // already reads and checks every file before it offers to do anything. Saying so is
+        // what turns that into something you can use on purpose.
+        Text(
+            "Import checks the file first and shows you what is inside it. Tapping Cancel at " +
+                "that point tells you a backup is complete and readable without changing " +
+                "anything \u2014 which is how to check an old backup is still good.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        when (backup) {
+            BackupState.Idle -> Unit
+
+            is BackupState.Working -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.height(18.dp).width(18.dp))
+                Text(
+                    "  ${backup.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            is BackupState.Exported -> BackupNote(
+                buildString {
+                    append("Saved to ")
+                    append(backup.result.where)
+                    append(" \u2014 ")
+                    append(readableSize(backup.result.bytes))
+                    // Nothing about missing files to report: an export that could not carry
+                    // everything is refused outright, so a saved backup is a complete one.
+                },
+                onDismiss,
+            )
+
+            is BackupState.Restored -> BackupNote(
+                buildString {
+                    val r = backup.result
+                    if (r.filled == 0 && r.replaced == 0) {
+                        append("Nothing to change \u2014 your pages already match this backup.")
+                    } else {
+                        append("Restored ")
+                        append(listOfNotNull(
+                            r.filled.takeIf { it > 0 }?.let { "$it empty page(s) filled" },
+                            r.replaced.takeIf { it > 0 }?.let { "$it replaced" },
+                        ).joinToString(", "))
+                        append(".")
+                    }
+                    if (r.kept > 0) append(" ${r.kept} of your own page(s) were left alone.")
+                    if (r.settings) append(" Settings restored.")
+                },
+                onDismiss,
+            )
+
+            is BackupState.Failed -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    backup.reason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Dismiss") }
+            }
+
+            is BackupState.Reviewing -> Unit // shown as a dialog by the caller
+        }
+    }
+}
+
+@Composable
+private fun BackupNote(text: String, onDismiss: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = onDismiss,
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.heightIn(min = 48.dp),
+        ) { Text("OK") }
+    }
+}
+
+private fun readableSize(bytes: Long): String = when {
+    bytes >= 1_000_000 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+    bytes > 0 -> "${bytes / 1024} KB"
+    else -> "empty"
+}
+
+/**
+ * What the backup contains, and what restoring it would do, before anything is written.
+ *
+ * The conflict choice only appears when there is genuinely something at stake. With every page
+ * empty there is nothing to lose and nothing to ask about.
+ */
+@Composable
+fun RestoreConfirmDialog(
+    review: BackupState.Reviewing,
+    onConfirm: (ConflictChoice, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var choice by rememberSaveable { mutableStateOf(ConflictChoice.KEEP_MINE) }
+    var alsoSettings by rememberSaveable { mutableStateOf(true) }
+    val filled = review.manifest.pages.count { it.hasContent }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Restore this backup?") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Taken ${review.manifest.exported.take(10)} from " +
+                        "version ${review.manifest.appVersion}.\n" +
+                        "$filled page(s) with something on them, " +
+                        "${review.manifest.files.size} file(s), " +
+                        "${readableSize(review.totalBytes)}.\n" +
+                        "Every file was checked and reads back correctly.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                if (review.conflicts > 0) {
+                    Text(
+                        "${review.conflicts} of your pages already have something on them.",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    ConflictOption(
+                        selected = choice == ConflictChoice.KEEP_MINE,
+                        onSelect = { choice = ConflictChoice.KEEP_MINE },
+                        title = "Keep my pages",
+                        subtitle = "Only empty pages are filled. Nothing you have is touched.",
+                    )
+                    ConflictOption(
+                        selected = choice == ConflictChoice.USE_BACKUP,
+                        onSelect = { choice = ConflictChoice.USE_BACKUP },
+                        title = "Use the backup's pages",
+                        subtitle = "Overwrites those ${review.conflicts} pages with the backup.",
+                    )
+                } else {
+                    // No conflicts has two causes and they are not the same news.
+                    Text(
+                        when {
+                            review.fill == 0 && review.unchanged > 0 ->
+                                "Your pages already match this backup, so restoring would " +
+                                    "change nothing. This is what a backup looks like when it " +
+                                    "is up to date."
+
+                            review.fill == 0 ->
+                                "There is nothing in this backup to put anywhere."
+
+                            else ->
+                                "${review.fill} empty page(s) would be filled. Nothing you " +
+                                    "already have will be replaced."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = alsoSettings, onCheckedChange = { alsoSettings = it })
+                    Column(Modifier.weight(1f)) {
+                        Text("Restore settings too", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Crossfade, photo fit, page count and the rest. Your diagnostics " +
+                                "are never restored.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(choice, alsoSettings) }) { Text("Restore") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ConflictOption(
+    selected: Boolean,
+    onSelect: () -> Unit,
+    title: String,
+    subtitle: String,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun WallpaperRow(state: ConfigUiState, onApplyWallpaper: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

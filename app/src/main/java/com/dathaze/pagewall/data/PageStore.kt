@@ -2,6 +2,7 @@ package com.dathaze.pagewall.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.dathaze.pagewall.backup.MediaCommit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -20,6 +21,14 @@ class PageStore(context: Context) {
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     val mediaDir: File = File(appContext.filesDir, "pages").apply { mkdirs() }
+
+    init {
+        // A restore that was killed outright leaves working files behind. Tidied here because
+        // this is the one thing every part of the app builds — the settings screen, the widget
+        // and the wallpaper engine — and only files old enough to be certainly abandoned are
+        // touched. Guarded because tidying up is never a reason to fail to start.
+        runCatching { MediaCommit.recoverLeftovers(mediaDir) }
+    }
 
     /**
      * How many home screen pages the launcher actually has, worked out by the engine from the
@@ -326,10 +335,17 @@ class PageStore(context: Context) {
             .apply()
     }
 
-    fun pages(): List<PageConfig> {
-        val byIndex = readPages().associateBy { it.index }
-        return (0 until pageCount).map { byIndex[it] ?: PageConfig(it) }
-    }
+    /** The pages the launcher has room for, which is what the home screen lays out. */
+    fun pages(): List<PageConfig> = PageSelection.visible(readPages(), pageCount)
+
+    /**
+     * Every page with something saved on it, including pages past the current count.
+     *
+     * Turning the page count down hides a page without clearing it, so this is deliberately not
+     * [pages]: a backup, and any decision about what a restore would overwrite, has to see the
+     * hidden ones too.
+     */
+    fun assignedPages(): List<PageConfig> = PageSelection.assigned(readPages())
 
     fun page(index: Int): PageConfig =
         readPages().firstOrNull { it.index == index } ?: PageConfig(index)
@@ -346,9 +362,10 @@ class PageStore(context: Context) {
      * per photo, so any single failure mid-way left the rest of the batch unapplied. One write
      * either lands completely or not at all.
      */
-    fun setMediaBatch(assignments: List<PageAssignment>) {
-        if (assignments.isEmpty()) return
-        val pages = readPages().toMutableList()
+    fun setMediaBatch(assignments: List<PageAssignment>): Boolean {
+        if (assignments.isEmpty()) return true
+        val before = readPages()
+        val pages = before.toMutableList()
         assignments.forEach { assignment ->
             val position = pages.indexOfFirst { it.index == assignment.index }
             val old = if (position >= 0) pages[position] else null
@@ -357,31 +374,55 @@ class PageStore(context: Context) {
                 mediaKind = assignment.kind,
                 posterFile = assignment.posterFile,
             )
-            if (old != null) {
-                deleteIfReplaced(old.mediaFile, updated.mediaFile)
-                deleteIfReplaced(old.posterFile, updated.posterFile)
-                pages[position] = updated
-            } else {
-                pages.add(updated)
-            }
+            if (old != null) pages[position] = updated else pages.add(updated)
         }
-        writePages(pages)
+        return commitPages(before, pages)
     }
 
-    fun setAudio(index: Int, fileName: String?, title: String?) {
+    fun setAudio(index: Int, fileName: String?, title: String?): Boolean =
         update(index) { it.copy(audioFile = fileName, audioTitle = title) }
-    }
 
-    /** Clears every slot for a page and deletes the files it owned. */
+    /** Clears every slot for a page and deletes the files nothing else is using. */
     fun clearPage(index: Int) {
-        val existing = page(index)
-        listOfNotNull(existing.mediaFile, existing.posterFile, existing.audioFile)
-            .forEach { File(mediaDir, it).delete() }
-        writePages(readPages().filterNot { it.index == index })
+        val before = readPages()
+        commitPages(before, before.filterNot { it.index == index })
     }
 
     fun fileFor(name: String?): File? =
         name?.let { File(mediaDir, it) }?.takeIf { it.exists() }
+
+    /**
+     * One preference's stored value, whatever type it was written as.
+     *
+     * Used only by the backup, which has to carry a setting without knowing in advance what
+     * kind of thing it is. Returns null for anything never set, so a backup records only what
+     * the person actually changed rather than freezing this build's defaults into a file that
+     * outlives them.
+     */
+    fun rawSetting(key: String): Any? = prefs.all[key]
+
+    /**
+     * Writes restored settings back, in one commit.
+     *
+     * Only keys the caller has already filtered are written — [com.dathaze.pagewall.backup
+     * .BackupSettings] decides what may be restored, and this does not second-guess it. One
+     * edit rather than one per key, so a restore cannot be observed half-applied by the engine
+     * listening on the other side.
+     */
+    fun applySettings(values: Map<String, Any>) {
+        if (values.isEmpty()) return
+        prefs.edit().apply {
+            values.forEach { (key, value) ->
+                when (value) {
+                    is Boolean -> putBoolean(key, value)
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
+                    is String -> putString(key, value)
+                }
+            }
+        }.apply()
+    }
 
     fun registerListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -391,25 +432,37 @@ class PageStore(context: Context) {
         prefs.unregisterOnSharedPreferenceChangeListener(listener)
     }
 
-    private fun update(index: Int, transform: (PageConfig) -> PageConfig) {
-        val pages = readPages().toMutableList()
+    private fun update(index: Int, transform: (PageConfig) -> PageConfig): Boolean {
+        val before = readPages()
+        val pages = before.toMutableList()
         val position = pages.indexOfFirst { it.index == index }
         val updated = transform(if (position >= 0) pages[position] else PageConfig(index))
-        if (position >= 0) {
-            // Replacing a slot orphans the file it used to hold, so delete it as we go.
-            val old = pages[position]
-            deleteIfReplaced(old.mediaFile, updated.mediaFile)
-            deleteIfReplaced(old.posterFile, updated.posterFile)
-            deleteIfReplaced(old.audioFile, updated.audioFile)
-            pages[position] = updated
-        } else {
-            pages.add(updated)
-        }
-        writePages(pages)
+        if (position >= 0) pages[position] = updated else pages.add(updated)
+        return commitPages(before, pages)
     }
 
-    private fun deleteIfReplaced(old: String?, new: String?) {
-        if (old != null && old != new) File(mediaDir, old).delete()
+    /**
+     * Saves [after] and only then deletes the files nothing refers to any more.
+     *
+     * The order is the point, and so is [SharedPreferences.Editor.commit] where something is
+     * about to be deleted: a photo may only be removed once the assignment that stopped naming
+     * it is actually on disk. Deleting first — which is what this used to do, slot by slot —
+     * means an interruption in between leaves a page naming a file that is gone, and no later
+     * run can put it back. Where there is nothing to delete there is nothing to wait for, so
+     * that write stays asynchronous exactly as before.
+     *
+     * Returns false when the assignments could not be saved, so a caller that promised somebody
+     * their pages had changed can say otherwise instead.
+     */
+    private fun commitPages(before: List<PageConfig>, after: List<PageConfig>): Boolean {
+        val orphans = PageWrite.orphans(before, after)
+        if (orphans.isEmpty()) {
+            writePages(after)
+            return true
+        }
+        if (!writePagesNow(after)) return false
+        orphans.forEach { File(mediaDir, it).delete() }
+        return true
     }
 
     private fun readPages(): List<PageConfig> {
@@ -435,6 +488,15 @@ class PageStore(context: Context) {
     }
 
     private fun writePages(pages: List<PageConfig>) {
+        prefs.edit().putString(KEY_PAGES, serialise(pages)).apply()
+    }
+
+    /** As [writePages], but returns only once the new assignments are on disk. */
+    private fun writePagesNow(pages: List<PageConfig>): Boolean =
+        runCatching { prefs.edit().putString(KEY_PAGES, serialise(pages)).commit() }
+            .getOrDefault(false)
+
+    private fun serialise(pages: List<PageConfig>): String {
         val array = JSONArray()
         pages.sortedBy { it.index }.forEach { page ->
             array.put(
@@ -448,7 +510,7 @@ class PageStore(context: Context) {
                 }
             )
         }
-        prefs.edit().putString(KEY_PAGES, array.toString()).apply()
+        return array.toString()
     }
 
     companion object {

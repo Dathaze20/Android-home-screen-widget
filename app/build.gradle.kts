@@ -143,4 +143,9 @@ dependencies {
     implementation(libs.androidx.material.icons.extended)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)
+    // The real org.json. Android ships it, but the unit-test classpath has only stubs that
+    // throw, so without this the backup manifest could not be tested off a device — and the
+    // manifest is exactly the part that must not be discovered to be wrong on a phone holding
+    // the only copy of someone's pictures.
+    testImplementation(libs.json)
 }

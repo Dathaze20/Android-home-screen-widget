@@ -14,6 +14,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A branch build has to be installable over whatever is on the phone, and Android refuses
+      # a lower versionCode outright: "App not installed", with nothing to say why. Without this
+      # every branch APK was stamped with Gradle's fallback 10000 and could not be installed over
+      # any release since v1.0.0. One above the newest tag installs over the current release, and
+      # is equal to what that next release will carry, which Android accepts as a reinstall.
+      - name: Work out a version for this build
+        id: dev
+        run: |
+          set -uo pipefail
+          git fetch --tags --quiet origin || true
+          latest="$(git tag -l 'v*' | sort -V | tail -1)"
+          if [ -z "$latest" ]; then
+            echo "::notice::no tags found; using the Gradle fallback version"
+            echo "code=10000" >> "$GITHUB_OUTPUT"
+            echo "name=1.0.0-dev" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          name="${latest#v}"
+          major="${name%%.*}"; rest="${name#*.}"; minor="${rest%%.*}"; patch="${rest#*.}"
+          code=$(( major * 10000 + minor * 100 + patch + 1 ))
+          echo "::notice::building as versionCode $code (one above $latest)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "name=${name}-dev" >> "$GITHUB_OUTPUT"
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -77,6 +101,9 @@ jobs:
 
 
       - name: Build debug APK
+        env:
+          APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
         run: set -o pipefail; ./gradlew assemblePersonalDebug --no-daemon 2>&1 | tee -a compile.log
 
       # Built here too, so what gets published is proven on every push rather than first tried
@@ -85,6 +112,9 @@ jobs:
       # at release time. Same checks the release workflow runs before it attaches anything.
       # Results come out as ::notice:: so they are readable without opening the log.
       - name: Build release APK and check what it contains
+        env:
+          APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
         run: |
           set -o pipefail
           ./gradlew assemblePersonalRelease --no-daemon 2>&1 | tee -a compile.log
@@ -135,6 +165,9 @@ jobs:
           inspector="$(unzip -l "$apk" | grep -ciE 'ui_ui-tooling(-data)?\.version' || true)"
           [ "$inspector" = "0" ] || err "Compose layout inspector is packaged in the release APK"
 
+          built="$("$tools/aapt2" dump badging "$apk" 2>/dev/null \
+            | grep -oP "versionCode='\\K[0-9]+" | head -1)"
+          note "versionCode = ${built:-unknown} (must exceed the installed release to install over it)"
           rel=$(stat -c%s "$apk")
           note "release APK = $rel bytes ($((rel / 1000000)) MB); v1.0.4 was 56665788"
           dbg=$(stat -c%s app/build/outputs/apk/personal/debug/app-personal-debug.apk 2>/dev/null || echo 0)
@@ -144,6 +177,9 @@ jobs:
       # Compiled even though it cannot be signed here: without this the public flavour would
       # only ever be built at release time, and would break quietly in between.
       - name: Check the public flavour still builds
+        env:
+          APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
         run: |
           set -o pipefail
           ./gradlew assemblePublicDebug --no-daemon 2>&1 | tee -a compile.log

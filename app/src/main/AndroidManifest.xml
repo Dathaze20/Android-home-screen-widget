@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Saving a backup into Downloads. From Android 10 that needs no permission at all, because
+         MediaStore owns the folder; below it there is no Downloads collection to insert into, so
+         the public directory is written directly. Capped at 28 so no modern phone is ever asked
+         for storage access, and requested nowhere else. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

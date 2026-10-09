@@ -18,6 +18,14 @@ import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
+import com.dathaze.pagewall.backup.BackupCheck
+import com.dathaze.pagewall.backup.BackupManager
+import com.dathaze.pagewall.backup.BackupManifest
+import com.dathaze.pagewall.backup.BackupPlan
+import com.dathaze.pagewall.backup.ConflictChoice
+import com.dathaze.pagewall.backup.ExistingPage
+import com.dathaze.pagewall.backup.ExportResult
+import com.dathaze.pagewall.backup.RestoreResult
 import com.dathaze.pagewall.update.AppUpdater
 import com.dathaze.pagewall.update.UpdateState
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
@@ -81,6 +89,8 @@ data class ConfigUiState(
     val appVersionName: String = "",
     /** Where the in-app updater has got to. Idle until the user taps Check for updates. */
     val updateState: UpdateState = UpdateState.Idle,
+    /** Where backup and restore have got to. Idle until a button is tapped. */
+    val backupState: BackupState = BackupState.Idle,
     val busy: Boolean = false,
     /** Set when an import failed, e.g. a video over the size limit. Cleared once shown. */
     val errorMessage: String? = null,
@@ -96,6 +106,33 @@ data class ConfigUiState(
      */
     val setupComplete: Boolean
         get() = onboardingDone || (wallpaperActive && pages.any { it.hasMedia })
+}
+
+/** Where backup and restore have got to, so the sheet never has to infer it from nulls. */
+sealed interface BackupState {
+    data object Idle : BackupState
+    data class Working(val message: String) : BackupState
+    data class Exported(val result: ExportResult.Saved) : BackupState
+
+    /** A backup has been checked and found readable; nothing has been written yet. */
+    /**
+     * A backup has been checked and found readable; nothing has been written yet.
+     *
+     * Carries what a restore would actually do, not just whether it would clash. Zero conflicts
+     * has two quite different causes — the pages here are empty, or they already hold exactly
+     * what the backup carries — and a dialog that cannot tell them apart will say one of them
+     * when it means the other.
+     */
+    data class Reviewing(
+        val manifest: BackupManifest,
+        val totalBytes: Long,
+        val conflicts: Int,
+        val fill: Int,
+        val unchanged: Int,
+    ) : BackupState
+
+    data class Restored(val result: RestoreResult.Done) : BackupState
+    data class Failed(val reason: String) : BackupState
 }
 
 class ConfigViewModel(application: Application) : AndroidViewModel(application) {
@@ -207,6 +244,100 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
                 )
             )
         }
+    }
+
+    // ─── Backup and restore ───
+
+    private val backup = BackupManager(application)
+
+    /** The file picked for import, kept so the confirmation dialog's answer can act on it. */
+    private var pendingBackup: Pair<java.io.File, BackupManifest>? = null
+
+    fun exportBackup() {
+        if (uiState.backupState is BackupState.Working) return
+        uiState = uiState.copy(backupState = BackupState.Working("Building your backup\u2026"))
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { backup.exportToDownloads() }
+            uiState = uiState.copy(
+                backupState = when (result) {
+                    is ExportResult.Saved -> BackupState.Exported(result)
+                    is ExportResult.Failed -> BackupState.Failed(result.reason)
+                }
+            )
+        }
+    }
+
+    /**
+     * Checks a picked file and works out what restoring it would do, without touching anything.
+     *
+     * Nothing is written until [confirmRestore], so backing out here costs nothing.
+     */
+    fun inspectBackup(uri: Uri) {
+        uiState = uiState.copy(backupState = BackupState.Working("Checking the backup\u2026"))
+        viewModelScope.launch {
+            val (check, local) = withContext(Dispatchers.IO) { backup.inspect(uri) }
+            uiState = when (check) {
+                is BackupCheck.Damaged -> {
+                    withContext(Dispatchers.IO) { backup.discardIncoming() }
+                    pendingBackup = null
+                    uiState.copy(backupState = BackupState.Failed(check.reason))
+                }
+
+                is BackupCheck.Ok -> {
+                    pendingBackup = local?.let { it to check.manifest }
+                    // assignedPages, not pages: a page past the current count still holds its
+                    // photo, so the counts shown must treat it as occupied.
+                    val here = store.assignedPages().associate { page ->
+                        page.index to ExistingPage(
+                            page.index, page.mediaFile, page.posterFile, page.audioFile,
+                        )
+                    }
+                    // Planned under KEEP_MINE, the cautious choice, so the counts shown are
+                    // what happens if the person changes nothing in the dialog.
+                    val summary = BackupPlan.summarise(
+                        BackupPlan.plan(here, check.manifest.pages, ConflictChoice.KEEP_MINE)
+                    )
+                    uiState.copy(
+                        backupState = BackupState.Reviewing(
+                            manifest = check.manifest,
+                            totalBytes = check.totalBytes,
+                            conflicts = summary.keep,
+                            fill = summary.fill,
+                            unchanged = summary.unchanged,
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun confirmRestore(choice: ConflictChoice, restoreSettings: Boolean) {
+        val (local, manifest) = pendingBackup ?: return
+        uiState = uiState.copy(backupState = BackupState.Working("Restoring\u2026"))
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                backup.restore(local, manifest, choice, restoreSettings)
+            }
+            withContext(Dispatchers.IO) { backup.discardIncoming() }
+            pendingBackup = null
+            uiState = uiState.copy(
+                backupState = when (result) {
+                    is RestoreResult.Done -> BackupState.Restored(result)
+                    is RestoreResult.Failed -> BackupState.Failed(result.reason)
+                }
+            )
+            // The grid and the wallpaper both read from the store, so re-reading it is what
+            // makes the restored pages appear without the app being reopened.
+            afterChange()
+        }
+    }
+
+    fun dismissBackupState() {
+        if (pendingBackup != null) {
+            pendingBackup = null
+            viewModelScope.launch { withContext(Dispatchers.IO) { backup.discardIncoming() } }
+        }
+        uiState = uiState.copy(backupState = BackupState.Idle)
     }
 
     /** Puts the update row back to its resting state, e.g. after a failure has been read. */
