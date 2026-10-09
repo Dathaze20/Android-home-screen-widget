@@ -530,10 +530,8 @@ private fun BackupRow(
                     append(backup.result.where)
                     append(" \u2014 ")
                     append(readableSize(backup.result.bytes))
-                    if (backup.result.skipped > 0) {
-                        append(". ${backup.result.skipped} file(s) were missing from this app ")
-                        append("and could not be included.")
-                    }
+                    // Nothing about missing files to report: an export that could not carry
+                    // everything is refused outright, so a saved backup is a complete one.
                 },
                 onDismiss,
             )

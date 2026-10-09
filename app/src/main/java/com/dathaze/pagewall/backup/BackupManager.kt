@@ -18,7 +18,7 @@ import java.util.Locale
 
 /** Where an export ended up, or why it did not. */
 sealed interface ExportResult {
-    data class Saved(val fileName: String, val where: String, val bytes: Long, val skipped: Int) : ExportResult
+    data class Saved(val fileName: String, val where: String, val bytes: Long) : ExportResult
     data class Failed(val reason: String) : ExportResult
 }
 
@@ -70,6 +70,15 @@ class BackupManager(private val context: Context) {
             BackupSettings.encode(store.rawSetting(key))?.let { key to it }
         }.toMap()
 
+        // Refused before a file exists, so there is nothing half-written to clean up and
+        // nothing in Downloads to mistake for a backup. The pages are not touched either way.
+        val missing = BackupExport.missingFiles(pages) { name -> store.fileFor(name) != null }
+        if (missing.isNotEmpty()) {
+            Log.w(TAG, "Refusing to export: ${missing.size} file(s) missing")
+            staging.deleteRecursively()
+            return ExportResult.Failed(BackupExport.incompleteReason(pages, missing))
+        }
+
         val result = runCatching {
             temp.outputStream().use { out ->
                 BackupArchive.write(
@@ -87,6 +96,12 @@ class BackupManager(private val context: Context) {
             Log.w(TAG, "Could not build the backup", it)
             staging.deleteRecursively()
             return ExportResult.Failed("Could not read your pages while building the backup.")
+        }
+
+        if (result.skipped.isNotEmpty()) {
+            Log.w(TAG, "A file went missing while the backup was being written")
+            staging.deleteRecursively()
+            return ExportResult.Failed(BackupExport.incompleteReason(pages, result.skipped))
         }
 
         // Checked before it is handed over, so "saved" never means "a file of some kind exists".
@@ -110,7 +125,7 @@ class BackupManager(private val context: Context) {
         return if (where == null) {
             ExportResult.Failed("Could not create the file in Downloads.")
         } else {
-            ExportResult.Saved(fileName, where, bytes, result.skipped.size)
+            ExportResult.Saved(fileName, where, bytes)
         }
     }
 
@@ -220,13 +235,15 @@ class BackupManager(private val context: Context) {
             }
         }
 
-        // Into the live folder, all of them or none: see [MediaCommit] for why a plain copy
-        // onto the live names cannot be undone. Files are written under the names the backup
-        // carries, so importing the same backup twice lands on the same names.
-        val moved = MediaCommit.commit(staging, store.mediaDir, needed)
+        // Into the live folder, all of them or none, and without overwriting or deleting
+        // anything already there — see [MediaCommit] for why that is what makes an interruption
+        // survivable. It reports the name each file ended up under, which is almost always the
+        // name the backup carries, so the assignments written below name a file certainly on
+        // disk.
+        val stored = MediaCommit.commit(staging, store.mediaDir, needed)
         staging.deleteRecursively()
 
-        if (!moved) {
+        if (stored == null) {
             return RestoreResult.Failed("The restored files could not be saved — your pages are unchanged.")
         }
 
@@ -234,23 +251,36 @@ class BackupManager(private val context: Context) {
         // the backup leaves empty are left alone rather than cleared: a backup carrying only a
         // track for a page says nothing about the picture already there, and clearing it would
         // delete a file the person never asked to lose.
-        val assignments = planned
-            .filter { it.action == PageAction.FILL_EMPTY || it.action == PageAction.REPLACE }
+        val touched = planned.filter {
+            it.action == PageAction.FILL_EMPTY || it.action == PageAction.REPLACE
+        }
+        val assignments = touched
             .mapNotNull { p ->
                 p.page.mediaFile?.let { media ->
                     PageAssignment(
                         index = p.index,
-                        fileName = media,
+                        fileName = stored[media] ?: media,
                         kind = runCatching { MediaKind.valueOf(p.page.mediaKind) }
                             .getOrDefault(MediaKind.IMAGE),
-                        posterFile = p.page.posterFile,
+                        posterFile = p.page.posterFile?.let { stored[it] ?: it },
                     )
                 }
             }
-        if (assignments.isNotEmpty()) store.setMediaBatch(assignments)
-
-        planned.filter { it.action == PageAction.FILL_EMPTY || it.action == PageAction.REPLACE }
-            .forEach { p -> p.page.audioFile?.let { store.setAudio(p.index, it, p.page.audioTitle) } }
+        // Checked rather than assumed. If the assignments cannot be saved — a full disk is the
+        // realistic way — then nothing on the home screen has changed, and saying "restored"
+        // would be the one kind of wrong this feature cannot afford.
+        var saved = store.setMediaBatch(assignments)
+        touched.forEach { p ->
+            p.page.audioFile?.let {
+                if (!store.setAudio(p.index, stored[it] ?: it, p.page.audioTitle)) saved = false
+            }
+        }
+        if (!saved) {
+            return RestoreResult.Failed(
+                "The pictures were copied in, but your page assignments could not be saved — " +
+                    "nothing on your home screen has changed. Free up some space and try again.",
+            )
+        }
 
         if (restoreSettings) store.applySettings(BackupSettings.sanitise(manifest.settings))
 
