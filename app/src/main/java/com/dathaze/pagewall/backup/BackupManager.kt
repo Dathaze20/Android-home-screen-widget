@@ -53,7 +53,10 @@ class BackupManager(private val context: Context) {
         staging.listFiles()?.forEach { it.delete() }
         val temp = File(staging, "backup.zip")
 
-        val pages = store.pages().map { page ->
+        // Every page with something on it, not just the ones the launcher can reach today.
+        // Turning the page count down hides a page without clearing it, and a backup that
+        // skipped those would lose a photo the person still has.
+        val pages = store.assignedPages().map { page ->
             BackupPage(
                 index = page.index,
                 mediaFile = page.mediaFile,
@@ -185,10 +188,10 @@ class BackupManager(private val context: Context) {
      * Restores from a file already checked by [inspect].
      *
      * Order matters, and it is the order that makes a failure survivable. Everything is
-     * extracted into a staging directory first; only once every file is on disk are they moved
-     * into the live media folder, and only once that has succeeded are the page assignments
-     * written. A failure before the last step leaves the app exactly as it was, because nothing
-     * the engine reads has been touched yet.
+     * extracted into a staging directory first; only once every file is on disk are they handed
+     * to [MediaCommit], which puts all of them in place or none of them; and only once that has
+     * succeeded are the page assignments written. A failure at any point leaves the app exactly
+     * as it was, with nothing left behind in the folder the engine reads.
      */
     fun restore(
         local: File,
@@ -196,7 +199,9 @@ class BackupManager(private val context: Context) {
         choice: ConflictChoice,
         restoreSettings: Boolean,
     ): RestoreResult {
-        val existing = store.pages().associate { page ->
+        // Hidden pages count as occupied: a page beyond the current count still holds its
+        // photo, so a restore must not read it as empty and write straight over it.
+        val existing = store.assignedPages().associate { page ->
             page.index to ExistingPage(page.index, page.mediaFile, page.posterFile, page.audioFile)
         }
         val planned = BackupPlan.plan(existing, manifest.pages, choice)
@@ -215,22 +220,20 @@ class BackupManager(private val context: Context) {
             }
         }
 
-        // Copy into the live folder. Files are written under the names the backup carries, so
-        // importing the same backup twice lands on the same names and changes nothing.
-        val moved = runCatching {
-            needed.forEach { name ->
-                val from = File(staging, name)
-                val to = File(store.mediaDir, name)
-                from.inputStream().use { input -> to.outputStream().use { input.copyTo(it, COPY_BUFFER) } }
-            }
-        }.isSuccess
+        // Into the live folder, all of them or none: see [MediaCommit] for why a plain copy
+        // onto the live names cannot be undone. Files are written under the names the backup
+        // carries, so importing the same backup twice lands on the same names.
+        val moved = MediaCommit.commit(staging, store.mediaDir, needed)
         staging.deleteRecursively()
 
         if (!moved) {
             return RestoreResult.Failed("The restored files could not be saved — your pages are unchanged.")
         }
 
-        // Only now are assignments written, and only for pages the plan actually touches.
+        // Only now are assignments written, and only for pages the plan actually touches. Slots
+        // the backup leaves empty are left alone rather than cleared: a backup carrying only a
+        // track for a page says nothing about the picture already there, and clearing it would
+        // delete a file the person never asked to lose.
         val assignments = planned
             .filter { it.action == PageAction.FILL_EMPTY || it.action == PageAction.REPLACE }
             .mapNotNull { p ->

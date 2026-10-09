@@ -116,7 +116,11 @@ data class BackupPage(
     val audioFile: String? = null,
     val audioTitle: String? = null,
 ) {
+    /** Whether this page carries a picture or a video. */
     val hasMedia: Boolean get() = mediaFile != null
+
+    /** Whether this page carries anything at all, a track on its own included. */
+    val hasContent: Boolean get() = mediaFile != null || audioFile != null
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("index", index)

@@ -43,6 +43,9 @@ data class RestoreSummary(
  * The rule the whole feature rests on: **an occupied page is never overwritten unless that was
  * asked for.** Empty pages are filled without asking, because there is nothing there to lose.
  *
+ * Occupied means anything on it, audio included. A page carrying only a track is still a page
+ * someone set up: it has to be restorable, and it has to be asked about before it is replaced.
+ *
  * [PageAction.UNCHANGED] is what makes importing the same backup twice harmless. A page already
  * holding the file the backup carries is not written again, so no file is rewritten, no
  * assignment changes, and the second import reports honestly that there was nothing to do.
@@ -54,11 +57,11 @@ object BackupPlan {
         backup: List<BackupPage>,
         choice: ConflictChoice,
     ): List<PlannedPage> = backup
-        .filter { it.hasMedia }
+        .filter { it.hasContent }
         .map { page ->
             val here = existing[page.index]
             val action = when {
-                here == null || !here.hasMedia -> PageAction.FILL_EMPTY
+                here == null || !here.hasContent -> PageAction.FILL_EMPTY
                 here.matches(page) -> PageAction.UNCHANGED
                 choice == ConflictChoice.USE_BACKUP -> PageAction.REPLACE
                 else -> PageAction.KEEP
@@ -82,7 +85,7 @@ object BackupPlan {
     fun conflictCount(existing: Map<Int, ExistingPage>, backup: List<BackupPage>): Int =
         backup.count { page ->
             val here = existing[page.index]
-            page.hasMedia && here != null && here.hasMedia && !here.matches(page)
+            page.hasContent && here != null && here.hasContent && !here.matches(page)
         }
 
     /** The files a plan actually needs out of the archive. */
@@ -103,6 +106,14 @@ data class ExistingPage(
     val audioFile: String? = null,
 ) {
     val hasMedia: Boolean get() = mediaFile != null
+
+    /**
+     * Whether anything at all is on this page.
+     *
+     * Audio counts. A page with a track and no picture is a page the person set up, and reading
+     * it as empty would let a restore write over it without ever asking.
+     */
+    val hasContent: Boolean get() = mediaFile != null || audioFile != null
 
     /**
      * Whether this page already holds what the backup carries.

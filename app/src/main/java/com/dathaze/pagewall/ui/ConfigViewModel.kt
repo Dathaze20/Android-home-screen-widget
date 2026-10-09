@@ -285,7 +285,9 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
                 is BackupCheck.Ok -> {
                     pendingBackup = local?.let { it to check.manifest }
-                    val here = store.pages().associate { page ->
+                    // assignedPages, not pages: a page past the current count still holds its
+                    // photo, so the counts shown must treat it as occupied.
+                    val here = store.assignedPages().associate { page ->
                         page.index to ExistingPage(
                             page.index, page.mediaFile, page.posterFile, page.audioFile,
                         )

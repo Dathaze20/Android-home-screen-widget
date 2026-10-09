@@ -611,7 +611,7 @@ fun RestoreConfirmDialog(
 ) {
     var choice by rememberSaveable { mutableStateOf(ConflictChoice.KEEP_MINE) }
     var alsoSettings by rememberSaveable { mutableStateOf(true) }
-    val filled = review.manifest.pages.count { it.hasMedia }
+    val filled = review.manifest.pages.count { it.hasContent }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -624,7 +624,8 @@ fun RestoreConfirmDialog(
                 Text(
                     "Taken ${review.manifest.exported.take(10)} from " +
                         "version ${review.manifest.appVersion}.\n" +
-                        "$filled page(s) with media, ${review.manifest.files.size} file(s), " +
+                        "$filled page(s) with something on them, " +
+                        "${review.manifest.files.size} file(s), " +
                         "${readableSize(review.totalBytes)}.\n" +
                         "Every file was checked and reads back correctly.",
                     style = MaterialTheme.typography.bodySmall,

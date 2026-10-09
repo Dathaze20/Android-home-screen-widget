@@ -326,10 +326,17 @@ class PageStore(context: Context) {
             .apply()
     }
 
-    fun pages(): List<PageConfig> {
-        val byIndex = readPages().associateBy { it.index }
-        return (0 until pageCount).map { byIndex[it] ?: PageConfig(it) }
-    }
+    /** The pages the launcher has room for, which is what the home screen lays out. */
+    fun pages(): List<PageConfig> = PageSelection.visible(readPages(), pageCount)
+
+    /**
+     * Every page with something saved on it, including pages past the current count.
+     *
+     * Turning the page count down hides a page without clearing it, so this is deliberately not
+     * [pages]: a backup, and any decision about what a restore would overwrite, has to see the
+     * hidden ones too.
+     */
+    fun assignedPages(): List<PageConfig> = PageSelection.assigned(readPages())
 
     fun page(index: Int): PageConfig =
         readPages().firstOrNull { it.index == index } ?: PageConfig(index)

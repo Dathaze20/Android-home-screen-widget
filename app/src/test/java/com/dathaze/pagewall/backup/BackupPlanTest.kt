@@ -134,6 +134,64 @@ class BackupPlanTest {
     }
 
     @Test
+    fun `a page holding only a track still restores`() {
+        // The plan used to ask whether a backup page had media, so a page with a song and no
+        // picture was dropped from the plan: its track was in the backup and was quietly never
+        // put back.
+        val audioOnly = listOf(BackupPage(3, audioFile = "song.mp3", audioTitle = "A song"))
+        val plan = BackupPlan.plan(existing(), audioOnly, ConflictChoice.KEEP_MINE)
+
+        assertEquals(1, plan.size)
+        assertEquals(PageAction.FILL_EMPTY, plan.single().action)
+        assertEquals(1, BackupPlan.summarise(plan).fill)
+        // And the track is actually pulled out of the archive.
+        assertEquals(setOf("song.mp3"), BackupPlan.filesNeeded(plan))
+    }
+
+    @Test
+    fun `a page here holding only a track is not treated as empty`() {
+        // The other half of the same mistake: read as empty, such a page would have been filled
+        // without asking, overwriting a track the person chose.
+        val here = existing(ExistingPage(3, mediaFile = null, audioFile = "mine.mp3"))
+        val fromBackup = listOf(BackupPage(3, audioFile = "theirs.mp3"))
+
+        assertEquals(1, BackupPlan.conflictCount(here, fromBackup))
+        assertEquals(
+            PageAction.KEEP,
+            BackupPlan.plan(here, fromBackup, ConflictChoice.KEEP_MINE).single().action,
+        )
+        assertTrue(BackupPlan.filesNeeded(BackupPlan.plan(here, fromBackup, ConflictChoice.KEEP_MINE)).isEmpty())
+        assertEquals(
+            PageAction.REPLACE,
+            BackupPlan.plan(here, fromBackup, ConflictChoice.USE_BACKUP).single().action,
+        )
+    }
+
+    @Test
+    fun `a picture arriving where only a track is stored is still a conflict`() {
+        val here = existing(ExistingPage(4, mediaFile = null, audioFile = "mine.mp3"))
+        val fromBackup = listOf(BackupPage(4, mediaFile = "photo.jpg"))
+
+        assertEquals(1, BackupPlan.conflictCount(here, fromBackup))
+        assertEquals(
+            PageAction.KEEP,
+            BackupPlan.plan(here, fromBackup, ConflictChoice.KEEP_MINE).single().action,
+        )
+    }
+
+    @Test
+    fun `re-importing a backup of a track-only page changes nothing`() {
+        val audioOnly = listOf(BackupPage(3, audioFile = "song.mp3", audioTitle = "A song"))
+        val after = existing(ExistingPage(3, mediaFile = null, audioFile = "song.mp3"))
+
+        listOf(ConflictChoice.KEEP_MINE, ConflictChoice.USE_BACKUP).forEach { choice ->
+            val plan = BackupPlan.plan(after, audioOnly, choice)
+            assertEquals(PageAction.UNCHANGED, plan.single().action)
+            assertTrue(BackupPlan.filesNeeded(plan).isEmpty())
+        }
+    }
+
+    @Test
     fun `audio alone is enough to make a page different`() {
         val here = existing(ExistingPage(0, "b0.jpg", audioFile = "old-song.mp3"))
         val withAudio = listOf(BackupPage(0, mediaFile = "b0.jpg", audioFile = "new-song.mp3"))
