@@ -113,6 +113,17 @@ class PageWallpaperService : WallpaperService() {
         private var videoMode = false
 
         /**
+         * Whether a surface currently exists to draw on.
+         *
+         * Deliberately not the same flag as [visible]. Android may destroy and recreate the
+         * surface without the wallpaper ever being hidden, and it used to be onSurfaceDestroyed
+         * that cleared [visible] — which nothing set back, because only onVisibilityChanged does
+         * that. Every draw path is gated on visibility, so the engine went quiet and stayed
+         * quiet until the wallpaper happened to be hidden and shown again.
+         */
+        private var surfaceAlive = true
+
+        /**
          * Clips MediaPlayer has refused, so the engine stops handing the surface to a decoder
          * that will only fail again and draws the saved poster frame instead.
          *
@@ -333,6 +344,14 @@ class PageWallpaperService : WallpaperService() {
             if (target != currentPage) switchToPage(target, animate = true, playAudio = false)
         }
 
+        override fun onSurfaceCreated(holder: SurfaceHolder) {
+            super.onSurfaceCreated(holder)
+            surfaceAlive = true
+            // A fresh surface deserves a fresh budget: the retries spent waiting for the old one
+            // say nothing about this one.
+            drawRetries = 0
+        }
+
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
             if (width != surfaceWidth || height != surfaceHeight) {
@@ -353,7 +372,10 @@ class PageWallpaperService : WallpaperService() {
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             super.onSurfaceDestroyed(holder)
-            this.visible = false
+            // Not `visible = false`. The wallpaper may well still be on screen; it is the
+            // surface that has gone. Saying otherwise left the engine unable to start again,
+            // because nothing but onVisibilityChanged ever sets visibility back.
+            surfaceAlive = false
             handler.removeCallbacksAndMessages(null)
             framePending = false
             gesture.reset()
@@ -652,7 +674,7 @@ class PageWallpaperService : WallpaperService() {
 
         /** Picks the mode the current page needs, then hands off to the video player or the canvas. */
         private fun render() {
-            if (!visible) return
+            if (!FrameGate.hasSurface(visible, surfaceAlive)) return
 
             val config = store.page(currentPage)
             val videoFile = if (config.mediaKind == MediaKind.VIDEO && store.motionEnabled) {
@@ -716,13 +738,13 @@ class PageWallpaperService : WallpaperService() {
 
         /** Coalesced redraw request, so a burst of invalidations still costs one frame. */
         private fun requestFrame(delayMillis: Long) {
-            if (!visible || videoMode || framePending) return
+            if (!FrameGate.canDraw(visible, surfaceAlive, videoMode) || framePending) return
             framePending = true
             handler.postDelayed(frameRunnable, delayMillis)
         }
 
         private fun drawFrame() {
-            if (!visible || videoMode) return
+            if (!FrameGate.canDraw(visible, surfaceAlive, videoMode)) return
 
             val holder = surfaceHolder
             // Becoming visible and the surface becoming usable are not the same moment. Pressing

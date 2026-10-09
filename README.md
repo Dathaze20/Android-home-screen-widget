@@ -7,13 +7,25 @@ Set it up once; after that it runs by itself with the app closed.
 
 Built for a Galaxy A17 / One UI, but nothing in it is Samsung-specific.
 
-> [!WARNING]
-> **Releases v1.0.1 to v1.0.5 are personal builds, not a public distribution channel.**
-> They are signed with the debug keystore checked into this repository, whose password is the
-> standard Android debug one. Anyone can sign an APK with that same identity, and Android would
-> accept it as an *update* to an installed copy — inheriting its data. Those releases are kept so
-> the history stays honest, but do not install them expecting the signature to mean anything.
-> The public build, with a private release key and its own application ID, is still being set up.
+## Download
+
+**[⬇ Latest release](https://github.com/Dathaze20/Android-home-screen-widget/releases/latest)** — grab the APK on your phone and tap it.
+
+Two files are attached to each release. **Almost everyone wants the `public` one.**
+
+| File | Application ID | Signed with | Who it is for |
+| --- | --- | --- | --- |
+| `page-wallpaper-public-vX.Y.Z.apk` | `io.github.dathaze20.pagewallpaper` | a private release key | **everyone** |
+| `page-wallpaper-personal-vX.Y.Z.apk` | `com.dathaze.pagewall` | the debug key in this repo | the maintainer's own phone |
+
+They are two separate apps. They install side by side, and **neither can update the other** —
+different application IDs, different signing keys. That is deliberate, and explained under
+[Signing](#signing).
+
+> [!NOTE]
+> **Releases v1.0.1 to v1.0.5 predate the split.** Each attached a single unmarked APK, and all
+> of them are the personal build signed with this repository's public debug key — anyone can sign
+> an APK with that identity. They are kept so the history stays honest. Install v1.0.8 or later.
 
 ---
 
@@ -45,21 +57,55 @@ shows which page you are on and jumps you to that page's settings in one tap.
 
 ---
 
-## Yes, it is an APK
+## What it looks like
 
-An APK is just the Android app file. Two ways to get one:
+> **Screenshots are not captured yet.** Four are planned; see
+> [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for exactly what to shoot and where to upload them.
+> The table below goes live by deleting the two comment markers around it once the files are in
+> `docs/screenshots/` — it is commented out so the README does not show four broken images in
+> the meantime.
 
-**Without a computer (easiest).** Every push to GitHub builds the APK automatically.
-Go to the repo → **Actions** tab → click the newest **Build APK** run → scroll to **Artifacts** →
-download **page-wallpaper-debug-apk** → unzip → tap the `.apk` on your phone.
-Android will ask permission to install from an unknown source; allow it for your browser or
-file manager.
+<!-- SCREENSHOTS: uncomment once the four files are uploaded
+| | |
+| --- | --- |
+| ![The page grid](docs/screenshots/01-page-grid.png) | ![Settings](docs/screenshots/02-settings.png) |
+| **Every home screen, as a tile.** Tap one to change it, long-press to clear it. | **The menu**, behind the button at the top left. |
+| ![Home screen page 1](docs/screenshots/03-home-page-1.png) | ![Home screen page 2](docs/screenshots/04-home-page-2.png) |
+| **Home screen, page 1.** | **Page 2 — a different wallpaper, same home screen.** |
+-->
 
-**With a computer.** Open the project in Android Studio and press Run, or:
+---
+
+## Installing it on your phone
+
+You do not need a computer.
+
+1. On your phone, open the **[latest release](https://github.com/Dathaze20/Android-home-screen-widget/releases/latest)**.
+2. Under **Assets**, tap **`page-wallpaper-public-vX.Y.Z.apk`** to download it.
+3. Open the download. Android will say it cannot install from this source — tap **Settings** on
+   that prompt and allow your browser or file manager to install apps. This prompt appears for
+   anything not from the Play Store; it is not a warning about this app in particular.
+4. Tap **Install**.
+
+After the first install, the app updates itself: **Menu → Settings → Check for updates**.
+
+### Building it yourself
+
+The project has two product flavours, so the Gradle tasks name one:
+
 ```
-./gradlew assembleDebug
+./gradlew assemblePublicDebug      # the public build
+./gradlew assemblePersonalDebug    # the maintainer's build
 ```
-The APK lands in `app/build/outputs/apk/debug/`.
+
+The APK lands in `app/build/outputs/apk/<flavour>/debug/`. Release variants
+(`assemblePublicRelease`) need signing credentials that are not in this repository; the public
+one is built only by CI, from GitHub Secrets.
+
+Every push also builds APKs in Actions — repo → **Actions** → newest **Build APK** run →
+**Artifacts** → `page-wallpaper-debug-apk` or `page-wallpaper-release-apk`. Those are the
+*personal* flavour and are debug-signed; prefer a release download unless you are testing a
+commit that has not been released.
 
 ---
 
@@ -113,9 +159,9 @@ One UI Home reports a fixed offset of 0.5 with no page step, so on a Galaxy the 
 does the work. It switches itself on; there is an Auto / Always on / Off setting behind the
 settings icon to force it either way.
 
-**Confirmed working on a Galaxy A17 running One UI**, five pages each showing a different photo.
-Verified by the person this was built for, on their own phone — not by the author, who has no
-device.
+**Confirmed working on a Galaxy A17 running Android 16 / One UI**, five pages each showing a
+different photo, tested by the maintainer on their own phone. Anything in this README that is
+*not* marked as device-tested has been checked only by the unit tests and the CI build.
 
 ### Photo fit
 
@@ -195,6 +241,8 @@ the engine starts drawing again.
 | `widget/PageWidgetProvider.kt` | The widget |
 | `update/UpdateVersion.kt` | The tag-to-versionCode rule and the update states; no Android imports, so it is unit tested |
 | `update/AppUpdater.kt` | Asks GitHub for the latest release, downloads the APK, hands it to the installer |
+| `update/UpdateAssets.kt` | Picks the release asset belonging to this build; pure, so it is unit tested |
+| `wallpaper/FrameGate.kt` | Whether the engine may touch the surface or paint it; pure, so it is unit tested |
 
 Everything you pick is **copied** into the app's own storage rather than linked by URI, so a page
 keeps working after you delete the original from your gallery.
@@ -222,9 +270,9 @@ AGP 9.4 / Kotlin 2.4 / Gradle 9.8 / compileSdk 37, targetSdk 35, minSdk 28.
 
 Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
 resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`), the update version
-rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`) and the tile
-grid (`GridLayoutTest`). They run in CI before every
-build; no APK is produced if they fail.
+rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`), the tile grid
+(`GridLayoutTest`) and the draw gate (`FrameGateTest`) — 68 tests in all. They run in CI before
+every build; no APK is produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized
 from their own width rather than from leftover space. That is a rule, not a style: an earlier
@@ -239,10 +287,16 @@ one person's own phone and not fine for strangers: on Android the signing key *i
 identity, so a publicly known key means anyone can build something Android will accept as an
 update to it.
 
-The public build therefore gets its own application ID and a private release key held in GitHub
-Secrets. Each release carries one APK per build, named for which it is, and the in-app updater
-picks the one matching its own build rather than the first file it finds — installing the other
-one cannot work, because the application ID and the signing key both differ.
+The public build therefore has its own application ID, `io.github.dathaze20.pagewallpaper`, and a
+private release key held in GitHub Secrets and never committed. Since v1.0.8 each release carries
+one APK per build, named for which it is, and the in-app updater picks the one matching its own
+build rather than the first file it finds — installing the other cannot work, because the
+application ID and the signing key both differ.
+
+Before anything is attached to a release, CI checks the APK's signing certificate against the
+expected one, checks the application ID, checks the versionCode matches the tag, and **refuses to
+publish a public APK signed with the repository's debug key**. A split that fails open is worse
+than no split, so it fails closed instead.
 
 ## License
 
