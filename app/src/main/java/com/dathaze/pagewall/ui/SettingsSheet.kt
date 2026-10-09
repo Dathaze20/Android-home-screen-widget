@@ -649,9 +649,21 @@ fun RestoreConfirmDialog(
                         subtitle = "Overwrites those ${review.conflicts} pages with the backup.",
                     )
                 } else {
+                    // No conflicts has two causes and they are not the same news.
                     Text(
-                        "Every page the backup fills is empty here, so nothing of yours will " +
-                            "be replaced.",
+                        when {
+                            review.fill == 0 && review.unchanged > 0 ->
+                                "Your pages already match this backup, so restoring would " +
+                                    "change nothing. This is what a backup looks like when it " +
+                                    "is up to date."
+
+                            review.fill == 0 ->
+                                "There is nothing in this backup to put anywhere."
+
+                            else ->
+                                "${review.fill} empty page(s) would be filled. Nothing you " +
+                                    "already have will be replaced."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

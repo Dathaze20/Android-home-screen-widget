@@ -77,6 +77,32 @@ class BackupPlanTest {
     }
 
     @Test
+    fun `no conflicts does not mean the pages are empty`() {
+        // Two quite different situations, both with zero conflicts. A summary that cannot tell
+        // them apart lets a dialog say "every page here is empty" to somebody looking at five
+        // pages full of their own photographs, which is what it did.
+        val nothingHere = BackupPlan.summarise(
+            BackupPlan.plan(existing(), backup, ConflictChoice.KEEP_MINE)
+        )
+        val alreadyMatching = BackupPlan.summarise(
+            BackupPlan.plan(
+                existing(*backup.map { ExistingPage(it.index, it.mediaFile) }.toTypedArray()),
+                backup,
+                ConflictChoice.KEEP_MINE,
+            )
+        )
+
+        assertEquals(0, nothingHere.keep)
+        assertEquals(0, alreadyMatching.keep)
+
+        // ...and yet they are not the same thing at all.
+        assertEquals(3, nothingHere.fill)
+        assertEquals(0, nothingHere.unchanged)
+        assertEquals(0, alreadyMatching.fill)
+        assertEquals(3, alreadyMatching.unchanged)
+    }
+
+    @Test
     fun `a page is only a conflict when it holds something different`() {
         val here = existing(
             ExistingPage(0, "b0.jpg"),

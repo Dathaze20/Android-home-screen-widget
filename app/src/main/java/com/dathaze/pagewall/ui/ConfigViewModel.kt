@@ -115,10 +115,20 @@ sealed interface BackupState {
     data class Exported(val result: ExportResult.Saved) : BackupState
 
     /** A backup has been checked and found readable; nothing has been written yet. */
+    /**
+     * A backup has been checked and found readable; nothing has been written yet.
+     *
+     * Carries what a restore would actually do, not just whether it would clash. Zero conflicts
+     * has two quite different causes — the pages here are empty, or they already hold exactly
+     * what the backup carries — and a dialog that cannot tell them apart will say one of them
+     * when it means the other.
+     */
     data class Reviewing(
         val manifest: BackupManifest,
         val totalBytes: Long,
         val conflicts: Int,
+        val fill: Int,
+        val unchanged: Int,
     ) : BackupState
 
     data class Restored(val result: RestoreResult.Done) : BackupState
@@ -280,11 +290,18 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
                             page.index, page.mediaFile, page.posterFile, page.audioFile,
                         )
                     }
+                    // Planned under KEEP_MINE, the cautious choice, so the counts shown are
+                    // what happens if the person changes nothing in the dialog.
+                    val summary = BackupPlan.summarise(
+                        BackupPlan.plan(here, check.manifest.pages, ConflictChoice.KEEP_MINE)
+                    )
                     uiState.copy(
                         backupState = BackupState.Reviewing(
                             manifest = check.manifest,
                             totalBytes = check.totalBytes,
-                            conflicts = BackupPlan.conflictCount(here, check.manifest.pages),
+                            conflicts = summary.keep,
+                            fill = summary.fill,
+                            unchanged = summary.unchanged,
                         )
                     )
                 }
