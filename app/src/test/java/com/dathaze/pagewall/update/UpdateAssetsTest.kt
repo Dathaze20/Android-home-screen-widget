@@ -22,10 +22,32 @@ class UpdateAssetsTest {
     }
 
     @Test
-    fun `releases from before the split still update`() {
+    fun `releases from before the split still update the personal build`() {
         val legacy = listOf("page-wallpaper-v1.0.5.apk")
         assertEquals("page-wallpaper-v1.0.5.apk", UpdateAssets.pick(legacy, "personal"))
-        assertEquals("page-wallpaper-v1.0.5.apk", UpdateAssets.pick(legacy, "public"))
+    }
+
+    @Test
+    fun `the public build never claims an unmarked APK`() {
+        // Every release before the split is com.dathaze.pagewall signed with the repository's
+        // debug key. A public install taking one would download an APK it cannot install.
+        listOf(
+            "page-wallpaper-v1.0.1.apk",
+            "page-wallpaper-v1.0.4.apk",
+            "page-wallpaper-v1.0.5.apk",
+        ).forEach { assertNull(UpdateAssets.pick(listOf(it), "public")) }
+    }
+
+    @Test
+    fun `the names actually published by v1_0_8 resolve correctly`() {
+        // Taken from the real release rather than invented, so a change to how the workflow
+        // names its assets fails here rather than on someone's phone.
+        val shipped = listOf(
+            "page-wallpaper-personal-v1.0.8.apk",
+            "page-wallpaper-public-v1.0.8.apk",
+        )
+        assertEquals("page-wallpaper-personal-v1.0.8.apk", UpdateAssets.pick(shipped, "personal"))
+        assertEquals("page-wallpaper-public-v1.0.8.apk", UpdateAssets.pick(shipped, "public"))
     }
 
     @Test

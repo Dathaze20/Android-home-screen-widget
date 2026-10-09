@@ -18,6 +18,17 @@ object UpdateAssets {
     val KNOWN_TAGS = listOf("personal", "public")
 
     /**
+     * The only build an unmarked APK can belong to.
+     *
+     * Every release that predates the split — v1.0.1 through v1.0.5 — attached one APK with no
+     * marker, and all of them are com.dathaze.pagewall signed with the repository's debug key.
+     * None of them is the public build, and none ever will be, so a public install must not fall
+     * back to one: it would download an APK it cannot install, under a different application ID
+     * and a different key.
+     */
+    const val LEGACY_TAG = "personal"
+
+    /**
      * The asset [names] entry for the build tagged [flavorTag], or null when the release has
      * nothing this build can install.
      */
@@ -27,8 +38,10 @@ object UpdateAssets {
 
         apks.firstOrNull { carriesTag(it, flavorTag) }?.let { return it }
 
-        // No marked asset. A single unmarked APK is a release from before the split; anything
-        // else means this build's APK is simply not in this release.
+        // No marked asset. A single unmarked APK is a release from before the split, which only
+        // the personal build may claim; anything else means this build's APK is not in this
+        // release at all.
+        if (!flavorTag.equals(LEGACY_TAG, ignoreCase = true)) return null
         val unmarked = apks.filter { name -> KNOWN_TAGS.none { carriesTag(name, it) } }
         return if (apks.size == 1 && unmarked.size == 1) unmarked.single() else null
     }
