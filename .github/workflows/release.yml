@@ -24,6 +24,21 @@ on:
 permissions:
   contents: write
 
+env:
+  # The signing certificate every public release has carried since v1.0.8, and the one the copy
+  # on each user's phone already trusts.
+  #
+  # On Android the signing key *is* the app's identity. An APK signed with a different private
+  # key — a regenerated keystore, a secret overwritten by mistake, somebody else's key — is not
+  # an update to this app: Android refuses to install it over what is there, and the only way
+  # out for the user is to uninstall first, which deletes every saved page. That failure would
+  # reach everyone at once and could not be undone by publishing a corrected release.
+  #
+  # So the fingerprint is pinned rather than merely checked for being present. It is not a
+  # secret: anyone can read it out of a published APK, which is exactly where this value came
+  # from. The private key and its passwords stay in GitHub Secrets and appear nowhere.
+  EXPECTED_PUBLIC_CERT_SHA256: "434c6877651f157ce57bf3efefa81053a004e98902b01fd14359f44b49003898"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -197,6 +212,19 @@ jobs:
             | grep -iE 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
           [ "$digest" != "$debugdigest" ] \
             || err "the public APK is signed with the PUBLIC debug key - refusing to publish it"
+
+          # Not merely "a key" — *the* key. See EXPECTED_PUBLIC_CERT_SHA256 at the top of this
+          # file. Both sides are normalised, because apksigner and keytool disagree about colons
+          # and case, and a mismatch in formatting must not read as a mismatch in identity.
+          norm() { printf '%s' "${1:-}" | tr -d ': \t\r\n' | tr 'A-Z' 'a-z'; }
+          got="$(norm "$digest")"
+          want="$(norm "$EXPECTED_PUBLIC_CERT_SHA256")"
+          note "expected signer sha256 = ${want:-none}"
+          if [ -z "$want" ]; then
+            err "EXPECTED_PUBLIC_CERT_SHA256 is empty - refusing to publish unpinned"
+          elif [ "$got" != "$want" ]; then
+            err "signed with a different key than every release since v1.0.8: installed copies would refuse this update and could take it only by uninstalling, which deletes their saved pages"
+          fi
 
           pkg="$("$tools/aapt2" dump packagename "$apk" 2>/dev/null | tr -d '\r\n')"
           note "applicationId = ${pkg:-unknown}"

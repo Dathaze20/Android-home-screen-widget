@@ -10,15 +10,18 @@ import org.junit.Test
  */
 class UpdateAssetsTest {
 
+    // v1.0.9's real shape: the last release that carried both builds. v1.0.6 and v1.0.7, which
+    // this fixture used to name, only ever carried the personal APK — there was no public build
+    // before v1.0.8.
     private val split = listOf(
-        "page-wallpaper-personal-v1.0.6.apk",
-        "page-wallpaper-public-v1.0.6.apk",
+        "page-wallpaper-personal-v1.0.9.apk",
+        "page-wallpaper-public-v1.0.9.apk",
     )
 
     @Test
     fun `each build takes its own APK out of a release carrying both`() {
-        assertEquals("page-wallpaper-personal-v1.0.6.apk", UpdateAssets.pick(split, "personal"))
-        assertEquals("page-wallpaper-public-v1.0.6.apk", UpdateAssets.pick(split, "public"))
+        assertEquals("page-wallpaper-personal-v1.0.9.apk", UpdateAssets.pick(split, "personal"))
+        assertEquals("page-wallpaper-public-v1.0.9.apk", UpdateAssets.pick(split, "public"))
     }
 
     @Test
@@ -82,9 +85,9 @@ class UpdateAssetsTest {
 
     @Test
     fun `a release missing this build offers nothing rather than the other build`() {
-        val onlyPublic = listOf("page-wallpaper-public-v1.0.6.apk")
+        val onlyPublic = listOf("page-wallpaper-public-v1.0.9.apk")
         assertNull(UpdateAssets.pick(onlyPublic, "personal"))
-        assertEquals("page-wallpaper-public-v1.0.6.apk", UpdateAssets.pick(onlyPublic, "public"))
+        assertEquals("page-wallpaper-public-v1.0.9.apk", UpdateAssets.pick(onlyPublic, "public"))
     }
 
     @Test

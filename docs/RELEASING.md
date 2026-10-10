@@ -27,6 +27,7 @@ Each of these stops the release rather than producing something questionable:
 | The tag is `vX.Y.Z`, minor and patch under 100 | The updater reads the tag back as a number; anything else is unreadable to it |
 | All four signing secrets present, and the keystore actually opens with that password and alias | No fallback. The alternative to publishing with the real key is not publishing |
 | The APK is signed, and **not** with the repository's debug key | That key is in this repository. Publishing an APK signed with it would let anyone build an update to it |
+| The signing certificate is **exactly** `434c6877…49003898` | The fingerprint every public release has carried since v1.0.8. A different private key produces an APK that installed copies refuse outright — recoverable only by uninstalling, which deletes every saved page. Pinned in `EXPECTED_PUBLIC_CERT_SHA256` at the top of the workflow. Not a secret: it is readable from any published APK |
 | `applicationId` is `io.github.dathaze20.pagewallpaper` | A different ID is a different app; installed copies would never see the update |
 | Label is `Page Wallpaper` | |
 | versionCode in the APK equals `major × 10000 + minor × 100 + patch` | The updater compares this number. If it disagrees with the tag, the app either misses the release or offers one it already runs |
@@ -76,14 +77,26 @@ real identity is the one attached to a GitHub Release.
 ## The personal flavour
 
 `com.dathaze.pagewall`, signed with the checked-in debug key. It still builds, and CI still
-compiles it so it does not rot, but **it is no longer published**. Releases up to and including
-v1.0.9 carry it; nothing after that will.
+compiles it so it does not rot, but **it is no longer published**. Every release from v1.0.1 to
+v1.0.9 carried it — on its own up to v1.0.7, beside the public APK in v1.0.8 and v1.0.9. Nothing
+after that will.
 
 Anyone still running it cannot be updated into the public app — different application ID,
 different signing key — and has to move across with a backup zip. The README has the procedure.
 
 ## Historical releases
 
-Left alone, with their original files. v1.0.1–v1.0.5 attached a single unmarked APK; v1.0.6–v1.0.9
-attached one per flavour. Both shapes are still understood by the updater, so an old install can
-still find its way forward, and the record of what was actually published stays honest.
+Left alone, with their original files. What each one actually attached:
+
+| Release | Attached | Which app |
+| --- | --- | --- |
+| v1.0.1 – v1.0.5 | one unmarked APK, `page-wallpaper-vX.Y.Z.apk` | personal |
+| v1.0.6 – v1.0.7 | `page-wallpaper-personal-vX.Y.Z.apk` only | personal |
+| v1.0.8 – v1.0.9 | personal **and** public, one each | both |
+| v1.0.10 onwards | `page-wallpaper-public-vX.Y.Z.apk` only | public |
+
+There was no public build before v1.0.8. All three shapes are understood by `UpdateAssets.pick`:
+an unmarked lone APK is claimed by the personal build only, a marked one by whichever build it
+names, and a release with nothing for this build offers nothing rather than guessing.
+
+The record of what was actually published stays as it was.

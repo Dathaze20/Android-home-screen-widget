@@ -21,22 +21,27 @@ That is the whole download. Install it, and **Check for updates** inside the app
 from then on.
 
 <details>
-<summary><b>Older releases carried a second APK. If you installed one, read this.</b></summary>
+<summary><b>Earlier releases published a different app. If you installed one, read this.</b></summary>
 
-Releases **up to and including v1.0.9** also attached `page-wallpaper-personal-vX.Y.Z.apk`
-(`com.dathaze.pagewall`), signed with the debug keystore checked into this repository. That was
-the maintainer's own build, from before there was a public one. **It is no longer published.**
+What each release actually attached:
 
-It **cannot update into the public app**, and no future release will offer it anything. The two
-have different application IDs and different signing keys, so Android treats them as unrelated
-apps — which is exactly what they are. Nothing is lost, but moving across is a copy, not an
-update: see [Moving from a personal build](#moving-from-a-personal-build-to-the-public-app).
+| Release | Attached | Which app |
+| --- | --- | --- |
+| v1.0.1 – v1.0.5 | one unmarked APK, `page-wallpaper-vX.Y.Z.apk` | personal (`com.dathaze.pagewall`) |
+| v1.0.6 – v1.0.7 | `page-wallpaper-personal-vX.Y.Z.apk` only | personal |
+| v1.0.8 – v1.0.9 | `page-wallpaper-personal-…` **and** `page-wallpaper-public-…` | both, side by side |
+| **v1.0.10 onwards** | `page-wallpaper-public-vX.Y.Z.apk` only | **public** (`io.github.dathaze20.pagewallpaper`) |
 
-Releases **v1.0.1 to v1.0.5** are older still. Each attached a single unmarked APK, and all of
-them are the personal build signed with this repository's public debug key — anyone can sign an
-APK with that identity.
+So there was no public build at all before v1.0.8. Everything up to v1.0.7 is the personal build,
+signed with the debug keystore checked into this repository — a key anyone can sign an APK with.
 
-Every past release is left exactly as it was published, files included, so the history stays
+If what you installed is the personal build, it **cannot update into the public app**, and no
+future release will offer it anything. The two have different application IDs and different
+signing keys, so Android treats them as unrelated apps — which is exactly what they are. Nothing
+is lost, but moving across is a copy, not an update: see
+[Moving from a personal build](#moving-from-a-personal-build-to-the-public-app).
+
+Every past release is left exactly as it was published, files included, so the record stays
 honest. None of them is the app to install today.
 </details>
 
@@ -343,19 +348,24 @@ identity, so a publicly known key means anyone can build something Android will 
 update to it.
 
 The public build therefore has its own application ID, `io.github.dathaze20.pagewallpaper`, and a
-private release key held in GitHub Secrets and never committed. **It is the only build published.**
-v1.0.8 and v1.0.9 carried one APK per flavour and the updater picked the one matching its own
-build; from v1.0.10 there is simply one APK in the release, and the personal flavour is a
-development target that nobody downloads.
+private release key held in GitHub Secrets and never committed. It first appeared in **v1.0.8**,
+alongside the personal APK, and the updater picked whichever matched its own build. From
+**v1.0.10** it is the only build published, and the personal flavour is a development target that
+nobody downloads.
 
 The release workflow **cannot publish without the private key**. There is no fallback to the
 debug-signed build: a missing, unreadable or wrong-password keystore fails the release outright,
 before anything is built. Falling back would mean handing everyone an APK signed with a key
 printed in this repository.
 
-Before anything is attached to a release, CI checks the APK's signing certificate, checks it is
-**not** the repository's debug key, checks the application ID, checks the label, checks the
-versionCode matches the tag, and checks the layout inspector is not packaged. A split that fails
+Before anything is attached to a release, CI checks the APK's signing certificate **against the
+exact fingerprint every public release has carried since v1.0.8**, checks it is not the
+repository's debug key, checks the application ID, checks the label, checks the versionCode
+matches the tag, and checks the layout inspector is not packaged. Pinning the fingerprint rather
+than just requiring one is deliberate: an APK signed with some *other* private key is not an
+update to this app at all — Android refuses it, and the only way a user could take it is by
+uninstalling first, which deletes every saved page. The fingerprint is not a secret; it can be
+read out of any published APK. A split that fails
 open is worse than no split, so it fails closed instead.
 
 Debug builds carry a `.debug` application ID suffix, so a development APK installs beside the real
