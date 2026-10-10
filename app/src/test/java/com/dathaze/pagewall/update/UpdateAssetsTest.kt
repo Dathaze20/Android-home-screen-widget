@@ -51,6 +51,36 @@ class UpdateAssetsTest {
     }
 
     @Test
+    fun `a release carrying only the public APK updates the public build`() {
+        // The shape every release takes from v1.0.10 onwards: one asset, the public build.
+        // The name is produced by .github/workflows/release.yml, and this is the contract
+        // between that workflow and every copy of the app already installed. If the workflow
+        // ever names the file differently, "Check for updates" goes quiet on every phone and
+        // nothing else reports it — so it is pinned here, spelled out, rather than derived.
+        val release = listOf("page-wallpaper-public-v1.0.10.apk")
+        assertEquals("page-wallpaper-public-v1.0.10.apk", UpdateAssets.pick(release, "public"))
+    }
+
+    @Test
+    fun `a public-only release offers the personal build nothing at all`() {
+        // The personal build is no longer published. It must be told there is no update rather
+        // than handed an APK under a different application ID and a different signing key,
+        // which Android would refuse to install over it.
+        val release = listOf("page-wallpaper-public-v1.0.10.apk")
+        assertNull(UpdateAssets.pick(release, "personal"))
+    }
+
+    @Test
+    fun `a two-digit patch number does not confuse the asset name`() {
+        // v1.0.9 -> v1.0.10 is the first time the patch number grows a digit. The marker is
+        // matched as a whole word, so the digits after it cannot affect the choice.
+        listOf("1.0.9", "1.0.10", "1.0.11", "1.1.0", "2.0.0").forEach { version ->
+            val name = "page-wallpaper-public-v$version.apk"
+            assertEquals(name, UpdateAssets.pick(listOf(name), "public"))
+        }
+    }
+
+    @Test
     fun `a release missing this build offers nothing rather than the other build`() {
         val onlyPublic = listOf("page-wallpaper-public-v1.0.6.apk")
         assertNull(UpdateAssets.pick(onlyPublic, "personal"))

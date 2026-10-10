@@ -1,14 +1,24 @@
 name: Release
 
-# Pushing a tag like v1.0.1 publishes a GitHub Release with the APK attached. That release is
-# what the in-app update button reads: without one, "Check for updates" has nothing to find.
+# Pushing a tag like v1.0.10 publishes a GitHub Release with the public APK attached. That
+# release is what the in-app update button reads: without one, "Check for updates" has nothing
+# to find.
+#
+# One APK is published, and it is the public build — application ID
+# io.github.dathaze20.pagewallpaper, signed with a private key held in repository secrets. The
+# personal flavour still exists in the source for development and for the installs that predate
+# the split, but it is no longer distributed: a release carrying two APKs meant two update
+# channels, two signing identities, and a file somebody could install by mistake and then be
+# unable to update.
+#
+# Releases published before this change are left exactly as they are.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Version tag to build, e.g. v1.0.1"
+        description: "Version tag to build, e.g. v1.0.10"
         required: true
 
 permissions:
@@ -54,8 +64,45 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Checked before anything is built, and fatal rather than skippable.
+      #
+      # This used to be a conditional: no key meant the public APK was quietly skipped and the
+      # personal, debug-signed build was published on its own. That is the one failure mode a
+      # release must not have — the fallback is an APK signed with a key that is published in
+      # this repository, under a different application ID, offered to everybody. There is no
+      # fallback now. No key, no release.
+      - name: Require the public signing key
+        env:
+          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STOREPASS: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEYPASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -uo pipefail
+          missing=""
+          [ -n "$B64" ]       || missing="$missing RELEASE_KEYSTORE_BASE64"
+          [ -n "$STOREPASS" ] || missing="$missing RELEASE_KEYSTORE_PASSWORD"
+          [ -n "$ALIAS" ]     || missing="$missing RELEASE_KEY_ALIAS"
+          [ -n "$KEYPASS" ]   || missing="$missing RELEASE_KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot publish: missing repository secret(s):$missing"
+            exit 1
+          fi
+
+          # Not just present — usable. A keystore that is truncated, or a password or alias that
+          # is wrong, would otherwise surface as an opaque Gradle signing failure after a full
+          # build, or worse, as an unsigned APK.
+          store="$RUNNER_TEMP/keycheck.jks"
+          trap 'rm -f "$store"' EXIT
+          printf '%s' "$B64" | base64 -d > "$store" 2>/dev/null \
+            || { echo "::error::RELEASE_KEYSTORE_BASE64 is not valid base64"; exit 1; }
+          keytool -list -keystore "$store" -storepass "$STOREPASS" -alias "$ALIAS" >/dev/null 2>&1 \
+            || { echo "::error::the keystore, its password or the alias is not usable"; exit 1; }
+          echo "::notice::public signing key present and readable"
+
+      # Run against the public variant, because that is the one being published.
       - name: Run unit tests
-        run: set -o pipefail; ./gradlew testPersonalDebugUnitTest --no-daemon 2>&1 | tee compile.log
+        run: set -o pipefail; ./gradlew testPublicDebugUnitTest --no-daemon 2>&1 | tee compile.log
 
       # Emitted as ::error:: as well as printed, so a failure is readable from the run's
       # annotations without opening the log. Gradle's own "What went wrong" is included,
@@ -84,7 +131,7 @@ jobs:
 
       - name: Verify tests actually executed
         run: |
-          results="app/build/test-results/testPersonalDebugUnitTest"
+          results="app/build/test-results/testPublicDebugUnitTest"
           if [ ! -d "$results" ]; then
             echo "No test results directory: the test task did not run."; exit 1
           fi
@@ -94,22 +141,22 @@ jobs:
           echo "tests=$total failures=$failures errors=$errors"
           if [ "${total:-0}" -lt 1 ]; then echo "No tests executed."; exit 1; fi
           if [ "${failures:-0}" -ne 0 ] || [ "${errors:-0}" -ne 0 ]; then exit 1; fi
+          echo "::notice::$total tests executed, all passing"
 
-      # The release variant, signed with the same checked-in debug.keystore every build has used.
-      # The key is what lets an update install over what is on the phone; the variant is what
-      # keeps Compose's layout-inspector tooling — developer-only, and megabytes of it — out of
-      # the APK people actually download.
-      - name: Build the APK
+      # Each of these is a claim the release makes. A claim that is not checked is a guess.
+      #
+      # The release variant, not debug: the variant is what keeps Compose's layout-inspector
+      # tooling — developer-only, and megabytes of it — out of the APK people actually download.
+      - name: Build and verify the public APK
         env:
+          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           APP_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: set -o pipefail; ./gradlew assemblePersonalRelease --no-daemon 2>&1 | tee -a compile.log
-
-      # Each of these is a claim the release makes. A claim that is not checked is a guess.
-      # Each of these is a claim the release makes. A claim that is not checked is a guess.
-      - name: Verify the APK before it is published
         run: |
-          # No `set -e`: a check that passes must not look like a failure. The previous version
+          # No `set -e`: a check that passes must not look like a failure. An earlier version
           # used `grep -q ... && { exit 1; }`, and grep returning 1 for "found nothing" — the
           # good case — took the whole script down with it.
           set -uo pipefail
@@ -117,26 +164,49 @@ jobs:
           note() { echo "::notice::$*"; }
           err()  { echo "::error::$*"; fail=1; }
 
-          apk="app/build/outputs/apk/personal/release/app-personal-release.apk"
+          # Written outside the workspace and removed however this step ends, so it cannot be
+          # picked up by an upload step or left behind in the build directory.
+          store="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$store"' EXIT
+          printf '%s' "$B64" | base64 -d > "$store" \
+            || { echo "::error::keystore secret is not valid base64"; exit 1; }
+          export RELEASE_KEYSTORE_PATH="$store"
+
+          ./gradlew assemblePublicRelease --no-daemon 2>&1 | tee -a compile.log
+
+          apk="app/build/outputs/apk/public/release/app-public-release.apk"
           tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
           note "build-tools $(basename "$tools")"
-          if [ ! -f "$apk" ]; then err "no release APK at $apk"; exit 1; fi
+          if [ ! -f "$apk" ]; then
+            # An unsigned output here means Gradle did not see the key at all.
+            echo "::error::no signed public release APK at $apk"
+            ls -l app/build/outputs/apk/public/release/ || true
+            exit 1
+          fi
 
           certs="$("$tools/apksigner" verify --print-certs "$apk" 2>&1)" \
             || err "apksigner verify failed: $certs"
           digest="$(printf '%s\n' "$certs" | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
-          expected="$(keytool -list -v -keystore app/debug.keystore -storepass android \
+          note "apk signer sha256 = ${digest:-none}"
+          [ -n "$digest" ] || err "the public APK has no signing certificate"
+
+          # The whole point of the split. If these ever match, the build being published is
+          # signed with the key that is published in this repository.
+          debugdigest="$(keytool -list -v -keystore app/debug.keystore -storepass android \
             -alias androiddebugkey 2>/dev/null \
             | grep -iE 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
-          note "apk signer sha256 = ${digest:-none}"
-          note "keystore sha256   = ${expected:-none}"
-          if [ -z "$digest" ] || [ "$digest" != "$expected" ]; then
-            err "signing identity differs from app/debug.keystore - this would not install over the previous build"
-          fi
+          [ "$digest" != "$debugdigest" ] \
+            || err "the public APK is signed with the PUBLIC debug key - refusing to publish it"
 
           pkg="$("$tools/aapt2" dump packagename "$apk" 2>/dev/null | tr -d '\r\n')"
           note "applicationId = ${pkg:-unknown}"
-          [ "$pkg" = "com.dathaze.pagewall" ] || err "applicationId is '$pkg', expected com.dathaze.pagewall"
+          [ "$pkg" = "io.github.dathaze20.pagewallpaper" ] \
+            || err "applicationId is '$pkg', expected io.github.dathaze20.pagewallpaper"
+
+          label="$("$tools/aapt2" dump badging "$apk" 2>/dev/null \
+            | grep -oP "application-label:'\\K[^']+" | head -1)"
+          note "label = ${label:-none}"
+          [ "$label" = "Page Wallpaper" ] || err "label is '$label', expected 'Page Wallpaper'"
 
           # AndroidX drops a META-INF/<group>_<artifact>.version marker per library, so this
           # names what is actually packaged. Matched precisely: ui-tooling-preview is only the
@@ -159,87 +229,16 @@ jobs:
             || err "versionCode in the APK does not match the tag - the updater compares this number"
           exit $fail
 
+      # The name is a contract, not a label: UpdateAssets.pick looks for "-public-" in it, and
+      # an install that cannot find a matching asset is told there is no update. Changing this
+      # breaks the update button on every phone already running the app.
+      # See UpdateAssetsTest, which pins this exact shape.
       - name: Name the APK after the version
         run: |
           mkdir -p dist
-          # Named for the build it is. The updater matches on that tag rather than taking the
-          # first .apk, which is what lets a release carry one APK per build later on.
-          cp app/build/outputs/apk/personal/release/app-personal-release.apk \
-             "dist/page-wallpaper-personal-${{ steps.version.outputs.tag }}.apk"
+          cp app/build/outputs/apk/public/release/app-public-release.apk \
+             "dist/page-wallpaper-public-${{ steps.version.outputs.tag }}.apk"
           ls -l dist
-
-      # Everything below is skipped until the four secrets exist, so the personal release keeps
-      # working exactly as it does now and the public build simply is not produced yet.
-      - name: Is the public signing key available
-        id: key
-        env:
-          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$B64" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::public signing key present - the public APK will be built"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::no public signing key - publishing the personal build only"
-          fi
-
-      - name: Build and verify the public APK
-        if: steps.key.outputs.available == 'true'
-        env:
-          B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
-          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: |
-          set -uo pipefail
-          fail=0
-          note() { echo "::notice::$*"; }
-          err()  { echo "::error::$*"; fail=1; }
-
-          # Written outside the workspace and deleted below, so it cannot be picked up by an
-          # upload step or left behind in the build directory.
-          store="$RUNNER_TEMP/release.jks"
-          printf '%s' "$B64" | base64 -d > "$store" || { echo "::error::keystore secret is not valid base64"; exit 1; }
-          export RELEASE_KEYSTORE_PATH="$store"
-
-          ./gradlew assemblePublicRelease --no-daemon 2>&1 | tee -a compile.log
-          apk="app/build/outputs/apk/public/release/app-public-release.apk"
-          if [ ! -f "$apk" ]; then
-            rm -f "$store"
-            echo "::error::public release APK was not produced"
-            exit 1
-          fi
-
-          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          certs="$("$tools/apksigner" verify --print-certs "$apk" 2>&1)" \
-            || err "the public APK is not signed"
-          digest="$(printf '%s\n' "$certs" | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
-          debugdigest="$(keytool -list -v -keystore app/debug.keystore -storepass android \
-            -alias androiddebugkey 2>/dev/null \
-            | grep -iE 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
-          note "public APK signer sha256 = ${digest:-none}"
-          [ -n "$digest" ] || err "the public APK has no signing certificate"
-          # The whole point of the split. If these ever match, the public build is being handed
-          # the key that is published in this repository.
-          [ "$digest" != "$debugdigest" ] \
-            || err "the public APK is signed with the PUBLIC debug key - refusing to publish it"
-
-          pkg="$("$tools/aapt2" dump packagename "$apk" 2>/dev/null | tr -d '\r\n')"
-          note "public applicationId = ${pkg:-unknown}"
-          [ "$pkg" = "io.github.dathaze20.pagewallpaper" ] \
-            || err "public applicationId is '$pkg'"
-
-          code="$("$tools/aapt2" dump badging "$apk" 2>/dev/null | grep -oP "versionCode='\\K[0-9]+" | head -1)"
-          [ "$code" = "${{ steps.version.outputs.code }}" ] \
-            || err "public versionCode is '$code', expected ${{ steps.version.outputs.code }}"
-
-          cp "$apk" "dist/page-wallpaper-public-${{ steps.version.outputs.tag }}.apk"
-          ls -l dist
-
-          rm -f "$store"
-          exit $fail
 
       # Written from what the build actually produced, not from a fixed paragraph. The notes
       # used to say the public build "is not published yet" and kept saying it after it was.
@@ -247,30 +246,16 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
           CODE: ${{ steps.version.outputs.code }}
-          HAVE_PUBLIC: ${{ steps.key.outputs.available }}
         run: |
           set -eu
           {
             echo "Page Wallpaper $TAG — versionCode $CODE"
             echo
-            echo "## Which file do I want?"
+            echo "## Download"
             echo
-            if [ "$HAVE_PUBLIC" = "true" ]; then
-              echo "**Most people want \`page-wallpaper-public-$TAG.apk\`.** It is the public build:"
-              echo "application ID \`io.github.dathaze20.pagewallpaper\`, signed with a private release"
-              echo "key that is not in this repository."
-              echo
-              echo "\`page-wallpaper-personal-$TAG.apk\` is the maintainer's own build"
-              echo "(\`com.dathaze.pagewall\`). It is signed with the debug keystore checked into this"
-              echo "repository, so its signature proves nothing about who built it. It exists so an"
-              echo "install that predates the split keeps updating. Install it only if you already"
-              echo "run that build."
-            else
-              echo "Only \`page-wallpaper-personal-$TAG.apk\` is attached to this release"
-              echo "(\`com.dathaze.pagewall\`), signed with the debug keystore checked into this"
-              echo "repository — its signature proves nothing about who built it. No public build"
-              echo "was produced for this tag."
-            fi
+            echo "**\`page-wallpaper-public-$TAG.apk\`** — the official build, and the only one."
+            echo "Application ID \`io.github.dathaze20.pagewallpaper\`, signed with a private"
+            echo "release key that is not in this repository."
             echo
             echo "## Installing"
             echo
@@ -278,16 +263,24 @@ jobs:
             echo "from your browser or file manager; that prompt is normal for anything not from"
             echo "the Play Store."
             echo
-            echo "The two builds are separate apps and can be installed side by side. Neither can"
-            echo "update the other: they have different application IDs and different signing"
-            echo "keys, which is deliberate."
-            echo
             echo "## Updating"
             echo
-            echo "Installs over your existing copy of the same build. Page assignments and"
-            echo "settings are kept, and there is no need to uninstall. In the app,"
-            echo "**Menu → Settings → Check for updates** finds this release by itself and picks"
-            echo "the APK matching the build you are running."
+            echo "Installs over your existing copy. Page assignments, wallpapers and settings are"
+            echo "kept, and there is no need to uninstall. In the app,"
+            echo "**Menu → Settings → Check for updates** finds this release by itself."
+            echo
+            echo "## If you are running the old personal build"
+            echo
+            echo "Releases up to and including v1.0.9 also carried"
+            echo "\`page-wallpaper-personal-vX.Y.Z.apk\` (\`com.dathaze.pagewall\`), signed with the"
+            echo "debug keystore checked into this repository. That build is no longer published."
+            echo
+            echo "It **cannot be updated into this one**: different application ID, different"
+            echo "signing key. Android treats them as unrelated apps, which is deliberate. To move"
+            echo "across without losing anything, export a backup from the personal app"
+            echo "(**Settings → Export backup to Downloads**), install this APK alongside it, and"
+            echo "import that backup in the new app. Both can stay installed while you check."
+            echo "Older releases are left in place and still carry their original files."
           } > NOTES.md
           cat NOTES.md
 

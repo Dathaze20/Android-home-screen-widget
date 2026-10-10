@@ -12,8 +12,8 @@ val appVersionCode: Int = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 10
 
 // The private key for the public build, supplied by CI from GitHub Secrets and never checked in.
 // Absent on any ordinary checkout, which is deliberate: the public flavour then simply goes
-// unsigned and CI skips publishing it, rather than the whole build failing for everyone who does
-// not hold the key.
+// unsigned, rather than the whole build failing for everyone who does not hold the key. The
+// release workflow refuses to publish without it — see .github/workflows/release.yml.
 val releaseKeystore: File? = System.getenv("RELEASE_KEYSTORE_PATH")
     ?.let { rootProject.file(it) }
     ?.takeIf { it.exists() }
@@ -65,13 +65,16 @@ android {
         }
     }
 
-    // One codebase, two identities.
+    // One codebase, two identities — but only one of them is distributed.
     //
-    // The personal build keeps com.dathaze.pagewall and the checked-in debug key, so the copy
-    // already on a phone keeps updating in place. The public build gets its own applicationId and
-    // a private key, because on Android the signing key is the app's identity and this one's is
-    // published in this repository — anyone can sign an APK that Android would accept as an
-    // update to it. Both install side by side; neither can update the other, which is the point.
+    // The public build is the product: its own applicationId, and a private key, because on
+    // Android the signing key is the app's identity and the debug one here is published in this
+    // repository — anyone could sign an APK that Android would accept as an update to it. It is
+    // the only build attached to a release.
+    //
+    // The personal flavour stays for the installs that predate the split and for working on the
+    // app without the release key. It is no longer published. The two install side by side and
+    // neither can update the other, which is why moving between them goes through a backup.
     flavorDimensions += "distribution"
     productFlavors {
         create("personal") {
@@ -92,6 +95,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            // A debug build is never the official app, and must not be able to pose as it.
+            //
+            // Without this, a CI branch build of the public flavour carries the real
+            // applicationId but the debug signing key. Installing one would occupy the official
+            // package name with the wrong signature: the release APK could then not be installed
+            // over it at all, and the only way out would be uninstalling and losing every saved
+            // page. The suffix makes a development build a separate app that sits beside the
+            // real one. Release builds are untouched, so what is published keeps its identity.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+
         release {
             // Signing is set per flavour above, not here: a build type's signingConfig would
             // override both flavours and hand the public build the published debug key.

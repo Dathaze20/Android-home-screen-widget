@@ -36,6 +36,21 @@ class UpdateVersionTest {
     }
 
     @Test
+    fun `the public build installed as v1_0_9 is offered v1_0_10`() {
+        // The next release, from what is on the maintainer's phone today. The patch number
+        // gaining a digit is the interesting part: as text "1.0.10" sorts below "1.0.9", and
+        // only the arithmetic gets this right.
+        val installed = UpdateVersion.codeFromTag("v1.0.9")
+        assertEquals(10009, installed)
+        assertEquals(10010, UpdateVersion.codeFromTag("v1.0.10"))
+        assertTrue(UpdateVersion.isNewer("v1.0.10", installed!!))
+
+        // ...and the release it is already running is not offered again.
+        assertFalse(UpdateVersion.isNewer("v1.0.9", installed))
+        assertFalse(UpdateVersion.isNewer("v1.0.8", installed))
+    }
+
+    @Test
     fun `only a strictly higher release counts as an update`() {
         assertTrue(UpdateVersion.isNewer("v1.0.1", installedCode = 10000))
         assertTrue(UpdateVersion.isNewer("v2.0.0", installedCode = 10900))
