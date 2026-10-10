@@ -11,21 +11,39 @@ Built for a Galaxy A17 / One UI, but nothing in it is Samsung-specific.
 
 **[⬇ Latest release](https://github.com/Dathaze20/Android-home-screen-widget/releases/latest)** — grab the APK on your phone and tap it.
 
-Two files are attached to each release. **Almost everyone wants the `public` one.**
+**One file, one app, one update channel.**
 
 | File | Application ID | Signed with | Who it is for |
 | --- | --- | --- | --- |
-| `page-wallpaper-public-vX.Y.Z.apk` | `io.github.dathaze20.pagewallpaper` | a private release key | **everyone** |
-| `page-wallpaper-personal-vX.Y.Z.apk` | `com.dathaze.pagewall` | the debug key in this repo | the maintainer's own phone |
+| `page-wallpaper-public-vX.Y.Z.apk` | `io.github.dathaze20.pagewallpaper` | a private release key, held in GitHub Secrets | **everyone, including the maintainer** |
 
-They are two separate apps. They install side by side, and **neither can update the other** —
-different application IDs, different signing keys. That is deliberate, and explained under
-[Signing](#signing).
+That is the whole download. Install it, and **Check for updates** inside the app keeps it current
+from then on.
 
-> [!NOTE]
-> **Releases v1.0.1 to v1.0.5 predate the split.** Each attached a single unmarked APK, and all
-> of them are the personal build signed with this repository's public debug key — anyone can sign
-> an APK with that identity. They are kept so the history stays honest. Install v1.0.8 or later.
+<details>
+<summary><b>Earlier releases published a different app. If you installed one, read this.</b></summary>
+
+What each release actually attached:
+
+| Release | Attached | Which app |
+| --- | --- | --- |
+| v1.0.1 – v1.0.5 | one unmarked APK, `page-wallpaper-vX.Y.Z.apk` | personal (`com.dathaze.pagewall`) |
+| v1.0.6 – v1.0.7 | `page-wallpaper-personal-vX.Y.Z.apk` only | personal |
+| v1.0.8 – v1.0.9 | `page-wallpaper-personal-…` **and** `page-wallpaper-public-…` | both, side by side |
+| **v1.0.10 onwards** | `page-wallpaper-public-vX.Y.Z.apk` only | **public** (`io.github.dathaze20.pagewallpaper`) |
+
+So there was no public build at all before v1.0.8. Everything up to v1.0.7 is the personal build,
+signed with the debug keystore checked into this repository — a key anyone can sign an APK with.
+
+If what you installed is the personal build, it **cannot update into the public app**, and no
+future release will offer it anything. The two have different application IDs and different
+signing keys, so Android treats them as unrelated apps — which is exactly what they are. Nothing
+is lost, but moving across is a copy, not an update: see
+[Moving from a personal build](#moving-from-a-personal-build-to-the-public-app).
+
+Every past release is left exactly as it was published, files included, so the record stays
+honest. None of them is the app to install today.
+</details>
 
 ---
 
@@ -89,6 +107,32 @@ You do not need a computer.
 
 After the first install, the app updates itself: **Menu → Settings → Check for updates**.
 
+### Moving from a personal build to the public app
+
+Only if you installed `page-wallpaper-personal-*.apk` from an older release. Android will not let
+the public APK update it — the application IDs and the signing keys differ, so they are two
+unrelated apps — but nothing has to be lost. Your pages travel in a backup zip.
+
+1. **In the old app:** **Menu → Settings → Export backup to Downloads.** It writes
+   `page-wallpaper-backup-YYYY-MM-DD.zip` and verifies it before telling you it saved. The zip
+   holds the actual photos, GIFs, videos, poster frames and audio, plus your page assignments and
+   settings — not just a list of file names.
+2. **Keep a second copy.** Share it to Drive, or to anywhere off the phone. One tap, and the
+   backup stops depending on this phone surviving.
+3. **Install the public APK.** It arrives as a *separate* app. **Do not uninstall the old one
+   yet** — its photos live in its own private storage and uninstalling deletes them.
+4. **In the new app:** **Menu → Settings → Import backup**, pick the zip. Every file is checked
+   against its recorded size and SHA-256, and you are shown what restoring would do before it
+   does anything. Tapping Cancel here changes nothing, and is a way to confirm a backup is
+   readable.
+5. **Restore.** Empty pages are filled; nothing already there is replaced unless you ask.
+6. **Set the new app as your wallpaper** and check every page.
+7. **Only then**, if you want to, uninstall the old app.
+
+The backup format is identical in both builds and records no application ID it reads back, so the
+same zip restores either way round. Both apps can stay installed indefinitely; they do not
+interfere with each other, though only one can be the live wallpaper at a time.
+
 ### Building it yourself
 
 The project has two product flavours, so the Gradle tasks name one:
@@ -102,10 +146,13 @@ The APK lands in `app/build/outputs/apk/<flavour>/debug/`. Release variants
 (`assemblePublicRelease`) need signing credentials that are not in this repository; the public
 one is built only by CI, from GitHub Secrets.
 
-Every push also builds APKs in Actions — repo → **Actions** → newest **Build APK** run →
-**Artifacts** → `page-wallpaper-debug-apk` or `page-wallpaper-release-apk`. Those are the
-*personal* flavour and are debug-signed; prefer a release download unless you are testing a
-commit that has not been released.
+Every push also builds an APK in Actions — repo → **Actions** → newest **Build APK** run →
+**Artifacts** → `page-wallpaper-public-debug-apk`. That is a **development build**: its
+application ID carries a `.debug` suffix and it is signed with the debug key, so it installs
+*beside* the real app instead of on top of it and can never be mistaken for a release. Keeping
+them separate is the point — a debug build holding the real package name would block the official
+APK from installing at all. No release-variant APK is uploaded by that workflow; releases come
+only from `release.yml`, and only from the private key.
 
 ---
 
@@ -203,8 +250,12 @@ installer, which still asks you to confirm — nothing installs silently. The fi
 will want permission to install apps from Page Wallpaper; the sheet has a button that opens that
 switch.
 
-Your page assignments and settings survive the update. Every build is signed with the same key, so
-the new APK installs over the old one and there is never any need to uninstall first.
+Your page assignments, wallpapers and settings survive the update. Every public release is signed
+with the same private key, so the new APK installs over the old one and there is never any need to
+uninstall first. Uninstalling **would** lose your pages — the photos live in the app's own private
+storage, where nothing else on the phone has a copy. Export a backup first if you ever need to.
+
+Only the public build is published, so there is one release to check and one file in it.
 
 Releases come from a tag: pushing `v1.0.1` runs `.github/workflows/release.yml`, which turns the
 tag into a versionCode (`major × 10000 + minor × 100 + patch`, so `v1.0.1` is `10001`), builds the
@@ -243,6 +294,10 @@ the engine starts drawing again.
 | `update/AppUpdater.kt` | Asks GitHub for the latest release, downloads the APK, hands it to the installer |
 | `update/UpdateAssets.kt` | Picks the release asset belonging to this build; pure, so it is unit tested |
 | `wallpaper/FrameGate.kt` | Whether the engine may touch the surface or paint it; pure, so it is unit tested |
+| `backup/BackupManager.kt` | Export to Downloads and restore from a picked file; the Android-shaped half |
+| `backup/BackupArchive.kt` | The zip itself: writing, hashing, verifying, extracting; pure, so it is unit tested |
+| `backup/BackupPlan.kt` | What a restore would change, worked out before anything is written; pure |
+| `backup/MediaCommit.kt` | Puts restored files in place without overwriting or deleting anything; pure |
 
 Everything you pick is **copied** into the app's own storage rather than linked by URI, so a page
 keeps working after you delete the original from your gallery.
@@ -271,8 +326,13 @@ AGP 9.4 / Kotlin 2.4 / Gradle 9.8 / compileSdk 37, targetSdk 35, minSdk 28.
 Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
 resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`), the update version
 rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`), the tile grid
-(`GridLayoutTest`) and the draw gate (`FrameGateTest`) — 68 tests in all. They run in CI before
-every build; no APK is produced if they fail.
+(`GridLayoutTest`), the draw gate (`FrameGateTest`), and the whole backup format — the archive
+and its verification (`BackupArchiveTest`), the manifest (`BackupManifestTest`), what a restore
+would change (`BackupPlanTest`), which settings may travel (`BackupSettingsTest`), putting files
+in place without losing any (`MediaCommitTest`), refusing an incomplete export
+(`BackupExportTest`), and which pages a backup must carry (`PageSelectionTest`, `PageWriteTest`)
+— **149 tests in all**. They run in CI against the public variant before every build; no APK is
+produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized
 from their own width rather than from leftover space. That is a rule, not a style: an earlier
@@ -288,15 +348,32 @@ identity, so a publicly known key means anyone can build something Android will 
 update to it.
 
 The public build therefore has its own application ID, `io.github.dathaze20.pagewallpaper`, and a
-private release key held in GitHub Secrets and never committed. Since v1.0.8 each release carries
-one APK per build, named for which it is, and the in-app updater picks the one matching its own
-build rather than the first file it finds — installing the other cannot work, because the
-application ID and the signing key both differ.
+private release key held in GitHub Secrets and never committed. It first appeared in **v1.0.8**,
+alongside the personal APK, and the updater picked whichever matched its own build. From
+**v1.0.10** it is the only build published, and the personal flavour is a development target that
+nobody downloads.
 
-Before anything is attached to a release, CI checks the APK's signing certificate against the
-expected one, checks the application ID, checks the versionCode matches the tag, and **refuses to
-publish a public APK signed with the repository's debug key**. A split that fails open is worse
-than no split, so it fails closed instead.
+The release workflow **cannot publish without the private key**. There is no fallback to the
+debug-signed build: a missing, unreadable or wrong-password keystore fails the release outright,
+before anything is built. Falling back would mean handing everyone an APK signed with a key
+printed in this repository.
+
+Before anything is attached to a release, CI checks the APK's signing certificate **against the
+exact fingerprint every public release has carried since v1.0.8**, checks it is not the
+repository's debug key, checks the application ID, checks the label, checks the versionCode
+matches the tag, and checks the layout inspector is not packaged. Pinning the fingerprint rather
+than just requiring one is deliberate: an APK signed with some *other* private key is not an
+update to this app at all — Android refuses it, and the only way a user could take it is by
+uninstalling first, which deletes every saved page. The fingerprint is not a secret; it can be
+read out of any published APK. A split that fails
+open is worse than no split, so it fails closed instead.
+
+Debug builds carry a `.debug` application ID suffix, so a development APK installs beside the real
+app and can never take its package name. Release builds are untouched by that — what is published
+keeps the identity every installed copy already trusts.
+
+The whole procedure, and every check that can stop a release, is written down in
+**[docs/RELEASING.md](docs/RELEASING.md)**.
 
 ## License
 

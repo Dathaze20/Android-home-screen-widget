@@ -1,7 +1,12 @@
 name: Build APK
 
-# Builds an installable debug APK on every push, so the app can be produced
+# Builds an installable debug APK of the public build on every push, so the app can be produced
 # without a computer: open the run, download the artifact, install it.
+#
+# What this produces is never the official app. Debug builds carry a ".debug" applicationId
+# suffix (see app/build.gradle.kts), so one installs beside io.github.dathaze20.pagewallpaper
+# rather than on top of it, and no artifact here can be mistaken for what a release publishes.
+# Releases are built by release.yml alone, from the release variant and the private key.
 on:
   push:
     branches: ["**"]
@@ -58,7 +63,7 @@ jobs:
         # No --stacktrace: it buries the handful of "e: file://..." compiler lines under ~160
         # lines of Gradle internals, which makes a failure unreadable from the log tail. The
         # output is kept so the step below can surface just the errors.
-        run: set -o pipefail; ./gradlew testPersonalDebugUnitTest --no-daemon 2>&1 | tee compile.log
+        run: set -o pipefail; ./gradlew testPublicDebugUnitTest --no-daemon 2>&1 | tee compile.log
 
       # Emitted as ::error:: as well as printed, so a failure is readable from the run's
       # annotations without opening the log. Gradle's own "What went wrong" is included,
@@ -87,7 +92,7 @@ jobs:
 
       - name: Verify tests actually executed
         run: |
-          results="app/build/test-results/testPersonalDebugUnitTest"
+          results="app/build/test-results/testPublicDebugUnitTest"
           if [ ! -d "$results" ]; then
             echo "No test results directory: the test task did not run."; exit 1
           fi
@@ -104,20 +109,20 @@ jobs:
         env:
           APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
           APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
-        run: set -o pipefail; ./gradlew assemblePersonalDebug --no-daemon 2>&1 | tee -a compile.log
+        run: set -o pipefail; ./gradlew assemblePublicDebug --no-daemon 2>&1 | tee -a compile.log
 
       # Built here too, so what gets published is proven on every push rather than first tried
-      # at release time. Same checks the release workflow runs before it attaches anything.
-      # Built here too, so what gets published is proven on every push rather than first tried
-      # at release time. Same checks the release workflow runs before it attaches anything.
+      # at release time. These are the same content checks the release workflow runs before it
+      # attaches anything; the signing check is the one thing missing, because the private key
+      # is not available here and must not be. Unsigned is expected and is not a failure.
       # Results come out as ::notice:: so they are readable without opening the log.
-      - name: Build release APK and check what it contains
+      - name: Build the public release APK and check what it contains
         env:
           APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
           APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
         run: |
           set -o pipefail
-          ./gradlew assemblePersonalRelease --no-daemon 2>&1 | tee -a compile.log
+          ./gradlew assemblePublicRelease --no-daemon 2>&1 | tee -a compile.log
           # No `set -e`: a check that passes must not look like a failure. The previous version
           # used `grep -q ... && { exit 1; }`, and grep returning 1 for "found nothing" — the
           # good case — took the whole script down with it.
@@ -126,34 +131,25 @@ jobs:
           note() { echo "::notice::$*"; }
           err()  { echo "::error::$*"; fail=1; }
 
-          apk="app/build/outputs/apk/personal/release/app-personal-release.apk"
+          dir="app/build/outputs/apk/public/release"
+          apk="$dir/app-public-release.apk"
+          [ -f "$apk" ] || apk="$dir/app-public-release-unsigned.apk"
           tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
           note "build-tools $(basename "$tools")"
-          if [ ! -f "$apk" ]; then err "no release APK at $apk"; exit 1; fi
+          if [ ! -f "$apk" ]; then err "no public release APK in $dir"; ls -l "$dir" || true; exit 1; fi
+          note "checking $(basename "$apk")"
 
-          certs="$("$tools/apksigner" verify --print-certs "$apk" 2>&1)" \
-            || err "apksigner verify failed: $certs"
-          digest="$(printf '%s\n' "$certs" | grep -i 'SHA-256 digest' | head -1 | awk '{print $NF}')"
-          expected="$(keytool -list -v -keystore app/debug.keystore -storepass android \
-            -alias androiddebugkey 2>/dev/null \
-            | grep -iE 'SHA256:' | head -1 | awk '{print $2}' | tr -d ':' | tr 'A-Z' 'a-z')"
-          note "apk signer sha256 = ${digest:-none}"
-          note "keystore sha256   = ${expected:-none}"
-          if [ -z "$digest" ] || [ "$digest" != "$expected" ]; then
-            err "signing identity differs from app/debug.keystore - this would not install over the previous build"
-          fi
-
+          # The identity the release must keep. No suffix on a release build, whatever the
+          # debug build type does.
           pkg="$("$tools/aapt2" dump packagename "$apk" 2>/dev/null | tr -d '\r\n')"
-          note "applicationId = ${pkg:-unknown}"
-          [ "$pkg" = "com.dathaze.pagewall" ] || err "applicationId is '$pkg', expected com.dathaze.pagewall"
+          note "release applicationId = ${pkg:-unknown}"
+          [ "$pkg" = "io.github.dathaze20.pagewallpaper" ] \
+            || err "release applicationId is '$pkg', expected io.github.dathaze20.pagewallpaper"
 
-          # The two builds install side by side, so a shared label would leave two identical
-          # entries in the launcher and the live wallpaper picker.
           label="$("$tools/aapt2" dump badging "$apk" 2>/dev/null \
             | grep -oP "application-label:'\\K[^']+" | head -1)"
-          note "personal label = ${label:-none}"
-          [ "$label" = "Page Wallpaper (Personal)" ] \
-            || err "personal label is '$label', expected 'Page Wallpaper (Personal)'"
+          note "release label = ${label:-none}"
+          [ "$label" = "Page Wallpaper" ] || err "release label is '$label', expected 'Page Wallpaper'"
 
           # AndroidX drops a META-INF/<group>_<artifact>.version marker per library, so this
           # names what is actually packaged. Matched precisely: ui-tooling-preview is only the
@@ -168,41 +164,44 @@ jobs:
           built="$("$tools/aapt2" dump badging "$apk" 2>/dev/null \
             | grep -oP "versionCode='\\K[0-9]+" | head -1)"
           note "versionCode = ${built:-unknown} (must exceed the installed release to install over it)"
+          [ "$built" = "${{ steps.dev.outputs.code }}" ] \
+            || err "versionCode is '$built', expected ${{ steps.dev.outputs.code }}"
+
           rel=$(stat -c%s "$apk")
           note "release APK = $rel bytes ($((rel / 1000000)) MB); v1.0.4 was 56665788"
-          dbg=$(stat -c%s app/build/outputs/apk/personal/debug/app-personal-debug.apk 2>/dev/null || echo 0)
+          [ "$rel" -lt 50000000 ] || err "release APK is not materially smaller than the 56.6 MB it replaces"
+          dbg=$(stat -c%s app/build/outputs/apk/public/debug/app-public-debug.apk 2>/dev/null || echo 0)
           note "debug APK = $dbg bytes; saved $((dbg - rel)) bytes"
           exit $fail
 
-      # Compiled even though it cannot be signed here: without this the public flavour would
-      # only ever be built at release time, and would break quietly in between.
-      - name: Check the public flavour still builds
+      # The debug artifact this run uploads must be unmistakably not the official app. If the
+      # suffix is ever dropped, a branch build would take the real package name with the wrong
+      # signing key, and the release APK could no longer be installed over it.
+      - name: Check the debug build cannot pose as the release
+        run: |
+          set -uo pipefail
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          dbg="app/build/outputs/apk/public/debug/app-public-debug.apk"
+          id="$("$tools/aapt2" dump packagename "$dbg" 2>/dev/null | tr -d '\r\n')"
+          echo "::notice::debug applicationId = ${id:-unknown}"
+          [ "$id" = "io.github.dathaze20.pagewallpaper.debug" ] \
+            || { echo "::error::debug applicationId is '$id'; it must not be the released one"; exit 1; }
+
+      # Compiled so the flavour the maintainer's older install still uses does not rot. It is
+      # not uploaded and is not published: releases carry the public build alone.
+      - name: Check the legacy personal flavour still builds
         env:
           APP_VERSION_NAME: ${{ steps.dev.outputs.name }}
           APP_VERSION_CODE: ${{ steps.dev.outputs.code }}
         run: |
           set -o pipefail
-          ./gradlew assemblePublicDebug --no-daemon 2>&1 | tee -a compile.log
-          pub="app/build/outputs/apk/public/debug/app-public-debug.apk"
+          ./gradlew assemblePersonalDebug --no-daemon 2>&1 | tee -a compile.log
           tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          id="$("$tools/aapt2" dump packagename "$pub" 2>/dev/null | tr -d '\r\n')"
-          echo "::notice::public flavour applicationId = ${id:-unknown}"
-          [ "$id" = "io.github.dathaze20.pagewallpaper" ] \
-            || { echo "::error::public flavour applicationId is '$id'"; exit 1; }
-
-          # The canonical product keeps the plain name; only the personal copy is qualified.
-          publabel="$("$tools/aapt2" dump badging "$pub" 2>/dev/null \
-            | grep -oP "application-label:'\\K[^']+" | head -1)"
-          echo "::notice::public flavour label = ${publabel:-none}"
-          [ "$publabel" = "Page Wallpaper" ] \
-            || { echo "::error::public label is '$publabel', expected 'Page Wallpaper'"; exit 1; }
-
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: page-wallpaper-release-apk
-          path: app/build/outputs/apk/personal/release/*.apk
-          if-no-files-found: error
+          pers="app/build/outputs/apk/personal/debug/app-personal-debug.apk"
+          id="$("$tools/aapt2" dump packagename "$pers" 2>/dev/null | tr -d '\r\n')"
+          echo "::notice::personal flavour applicationId = ${id:-unknown}"
+          [ "$id" = "com.dathaze.pagewall.debug" ] \
+            || { echo "::error::personal debug applicationId is '$id'"; exit 1; }
 
       # Always, not just on failure: a green tick proves the task succeeded, not that any
       # test actually ran. Gradle reports success on a cache hit too, so the report is the
@@ -216,9 +215,12 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
 
-      - name: Upload APK
+      # The only APK this workflow hands out, and it is a development build: ".debug"
+      # applicationId, debug key, installs beside the real app. No release-variant APK is
+      # uploaded, so nothing here can be mistaken for the file a GitHub Release carries.
+      - name: Upload the development APK
         uses: actions/upload-artifact@v4
         with:
-          name: page-wallpaper-debug-apk
-          path: app/build/outputs/apk/personal/debug/*.apk
+          name: page-wallpaper-public-debug-apk
+          path: app/build/outputs/apk/public/debug/*.apk
           if-no-files-found: error
