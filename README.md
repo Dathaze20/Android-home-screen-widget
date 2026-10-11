@@ -1,11 +1,29 @@
-# Android-home-screen-widget
+# Page Wallpaper
 
 [![Build APK](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml/badge.svg)](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml)
 
-**Page Wallpaper** — put a different **photo, GIF or video** on every home screen page.
-Set it up once; after that it runs by itself with the app closed.
+**A different photo, GIF or video on every home screen page.**
 
-Built for a Galaxy A17 / One UI, but nothing in it is Samsung-specific.
+Android lets you swipe between home screen pages but gives you one wallpaper for all of them.
+Page Wallpaper gives each page its own. Set it up once; after that it runs by itself, with the
+app closed.
+
+- **Every page gets its own picture.** Photos, GIFs and videos, assigned page by page from a grid
+  of your home screens.
+- **It follows your swipes.** The wallpaper changes as you move between pages, crossfading as it
+  goes.
+- **Samsung One UI is handled.** One UI reports a fixed scroll position, which defeats the method
+  every other launcher allows, so the app watches the swipe itself instead. Built and used on a
+  Galaxy A17, though nothing in it is Samsung-specific.
+- **Backup and restore, with the media included.** One zip carries your pictures, videos and
+  audio as well as the page assignments and settings — saved to Downloads, checked as it is
+  written, and restored without overwriting anything already on a page.
+- **It updates itself from GitHub.** **Menu → Settings → Check for updates** finds the newest
+  release, downloads the APK and hands it to Android's installer. No store account, and nothing
+  to uninstall.
+
+One app, one APK, one update channel: **`io.github.dathaze20.pagewallpaper`**, signed with a
+private release key.
 
 ## Download
 
@@ -77,13 +95,21 @@ shows which page you are on and jumps you to that page's settings in one tap.
 
 ## What it looks like
 
-> **Screenshots are not captured yet.** Four are planned; see
-> [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for exactly what to shoot and where to upload them.
-> The table below goes live by deleting the two comment markers around it once the files are in
-> `docs/screenshots/` — it is commented out so the README does not show four broken images in
-> the meantime.
+The app is one screen: your home screen pages as a grid of numbered tiles, each showing what is
+assigned to it, with the page you are on right now marked **NOW**. Tap a tile to change that
+page, long-press to clear it. Buttons underneath open the photo picker and the settings, and the
+menu at the top left holds the rest — page count, photo fit, crossfade, backup and restore, the
+diagnostics panel, and the update check.
 
-<!-- SCREENSHOTS: uncomment once the four files are uploaded
+<!--
+SCREENSHOTS — four real photographs of the app running on a phone. Not mock-ups, not renders.
+
+docs/SCREENSHOTS.md lists which four to take, what each one has to show, and what to check
+before publishing pictures of your own home screen. Once the files are in docs/screenshots/
+under the exact names below, delete the two comment markers around this block to publish it.
+
+Nothing below is linked while the files are absent, so the README never shows a broken image.
+
 | | |
 | --- | --- |
 | ![The page grid](docs/screenshots/01-page-grid.png) | ![Settings](docs/screenshots/02-settings.png) |
@@ -183,10 +209,10 @@ Sound from a video is muted unless you switch it on.
 ## Setting it up
 
 1. Install the APK.
-2. Open **Page Wallpaper**, tap **Choose photos**, and pick several at once. They land on page 1,
+2. Open **Page Wallpaper**, tap **Change photos**, and pick several at once. They land on page 1,
    2, 3 and so on in the order you picked them. Each tile says which home screen it is and gets a
    tick once filled. Tap a tile to change it, long-press to empty it.
-3. Tap **Set as wallpaper** and confirm **Home screen**.
+3. Tap **SET WALLPAPER** and confirm **Home screen**.
 4. Swipe across your home screens.
 
 That is the whole setup. One UI shows a single picture in its wallpaper preview and offers one
