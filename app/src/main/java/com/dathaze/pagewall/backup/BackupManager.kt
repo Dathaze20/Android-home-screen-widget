@@ -64,6 +64,7 @@ class BackupManager(private val context: Context) {
                 posterFile = page.posterFile,
                 audioFile = page.audioFile,
                 audioTitle = page.audioTitle,
+                active = page.active,
             )
         }
         val settings = BackupSettings.KEYS.mapNotNull { key ->
@@ -275,6 +276,12 @@ class BackupManager(private val context: Context) {
                 if (!store.setAudio(p.index, stored[it] ?: it, p.page.audioTitle)) saved = false
             }
         }
+        // Whether each restored screen was switched on travels with it. Only the pages this
+        // restore actually touched are set, so a screen the person chose to keep is left exactly
+        // as they left it, switch included.
+        val switches = touched.associate { it.index to it.page.active }
+        if (switches.isNotEmpty() && !store.setActiveStates(switches)) saved = false
+
         if (!saved) {
             return RestoreResult.Failed(
                 "The pictures were copied in, but your page assignments could not be saved — " +

@@ -103,6 +103,9 @@ class ConfigActivity : ComponentActivity() {
                             onAssignMedia = viewModel::assignMedia,
                             onFillPages = viewModel::fillPages,
                             onClearPage = viewModel::clearPage,
+                            onSetPageActive = viewModel::setPageActive,
+                            onReapplyPage = viewModel::reapplyPage,
+                            onReapplyAll = viewModel::reapplyAllSavedScreens,
                             onOpenPageDetails = { detailsPage = it },
                             onApplyWallpaper = ::applyWallpaper,
                             onOpenSettings = { settingsOpen = true },
@@ -143,6 +146,14 @@ class ConfigActivity : ComponentActivity() {
                             },
                             onSetAsCurrent = {
                                 viewModel.syncWallpaperTo(index)
+                                detailsPage = null
+                            },
+                            onSetActive = { active ->
+                                viewModel.setPageActive(index, active)
+                                detailsPage = null
+                            },
+                            onReapply = {
+                                viewModel.reapplyPage(index)
                                 detailsPage = null
                             },
                         )

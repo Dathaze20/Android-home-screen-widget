@@ -601,6 +601,10 @@ class PageWallpaperService : WallpaperService() {
                     updateHomeReceiver()
                     return
                 }
+                // Asked for by hand, and it wants precisely what a media change wants: drop the
+                // caches and draw the saved media again. It is not a page change — currentPage,
+                // the offsets and the tracker are not touched by this branch or the render below.
+                PageStore.KEY_REAPPLY_NONCE,
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     unplayableVideos.clear()
@@ -647,7 +651,9 @@ class PageWallpaperService : WallpaperService() {
         }
 
         private fun switchToPage(page: Int, animate: Boolean, playAudio: Boolean) {
-            val next = store.page(page)
+            // shownPage, not page: a screen switched off reads as empty here, so it fades to the
+            // plain background the engine already draws for a page nobody has filled in.
+            val next = store.shownPage(page)
             // animate = false is a correction rather than a navigation: the launcher is already
             // showing a different screen, so the picture should catch up instantly.
             // A video takes over the whole surface, so fading into or out of one is not possible.
@@ -676,7 +682,7 @@ class PageWallpaperService : WallpaperService() {
         private fun render() {
             if (!FrameGate.hasSurface(visible, surfaceAlive)) return
 
-            val config = store.page(currentPage)
+            val config = store.shownPage(currentPage)
             val videoFile = if (config.mediaKind == MediaKind.VIDEO && store.motionEnabled) {
                 store.fileFor(config.mediaFile)?.takeIf { it.absolutePath !in unplayableVideos }
             } else {
@@ -710,7 +716,7 @@ class PageWallpaperService : WallpaperService() {
                 audio.stop()
                 return
             }
-            val track = store.fileFor(store.page(currentPage).audioFile)
+            val track = store.fileFor(store.shownPage(currentPage).audioFile)
             if (track == null) {
                 audio.stop()
             } else {
@@ -723,7 +729,7 @@ class PageWallpaperService : WallpaperService() {
          * the saved poster frame for a video (used when motion is switched off).
          */
         private fun canvasDrawableFor(page: Int): Drawable? {
-            val config = store.page(page)
+            val config = store.shownPage(page)
             val name = if (config.mediaKind == MediaKind.VIDEO) config.posterFile else config.mediaFile
             val file = store.fileFor(name) ?: return null
             return cache.get(file, surfaceWidth, surfaceHeight, drawableCallback)

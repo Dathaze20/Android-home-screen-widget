@@ -230,6 +230,21 @@ class PageStore(context: Context) {
         get() = prefs.getInt(KEY_SYNC_PAGE, 0)
         private set(value) = prefs.edit().putInt(KEY_SYNC_PAGE, value).apply()
 
+    /**
+     * Asks the wallpaper to draw the saved media again, changing nothing about what is saved.
+     *
+     * Needed because "reapply" has to work in the case where nothing needs changing: when every
+     * screen is already switched on there is nothing to write, and SharedPreferences does not
+     * notify a listener about a value written unchanged, so the engine would never hear that it
+     * had been asked for anything.
+     *
+     * The value only has to differ from the last one. It says nothing about which page is
+     * showing and moves no tracker.
+     */
+    fun requestReapply() {
+        prefs.edit().putLong(KEY_REAPPLY_NONCE, prefs.getLong(KEY_REAPPLY_NONCE, 0L) + 1L).apply()
+    }
+
     /** The escape hatch: "the launcher is on this screen, catch up". */
     fun requestManualSync(page: Int) {
         prefs.edit()
@@ -349,6 +364,41 @@ class PageStore(context: Context) {
 
     fun page(index: Int): PageConfig =
         readPages().firstOrNull { it.index == index } ?: PageConfig(index)
+
+    /**
+     * What the wallpaper should show for [index] — the saved page, or an empty one when the
+     * screen is switched off.
+     *
+     * The engine reads through this rather than [page] so that switching a screen off needs no
+     * change to rendering, page maths or swipe tracking: a switched-off page simply looks like a
+     * page nobody has filled in, which the engine has always known how to draw. [page] still
+     * returns the real record, so the settings screen keeps showing the thumbnail.
+     */
+    fun shownPage(index: Int): PageConfig = ScreenActivation.shown(page(index))
+
+    /**
+     * Switches one screen on or off. Changes no file and no assignment.
+     *
+     * Returns false only when the write failed, which the caller should report rather than
+     * assume away.
+     */
+    fun setActive(index: Int, active: Boolean): Boolean =
+        update(index) { it.copy(active = active) }
+
+    /**
+     * Switches several screens on in one write, leaving everything else alone.
+     *
+     * One write rather than one per screen: the engine reloads on each change, and five reloads
+     * to reach one state is five chances to be interrupted half way.
+     */
+    fun setActiveStates(states: Map<Int, Boolean>): Boolean {
+        if (states.isEmpty()) return true
+        val before = readPages()
+        val after = before.map { page ->
+            states[page.index]?.let { page.copy(active = it) } ?: page
+        }
+        return commitPages(before, after)
+    }
 
     /** Assigns media to a page. [posterFile] is the extracted still frame, for videos only. */
     fun setMedia(index: Int, fileName: String?, kind: MediaKind, posterFile: String? = null) {
@@ -482,6 +532,9 @@ class PageStore(context: Context) {
                     posterFile = obj.optString("poster").takeIf { it.isNotEmpty() },
                     audioFile = obj.optString("audio").takeIf { it.isNotEmpty() },
                     audioTitle = obj.optString("audioTitle").takeIf { it.isNotEmpty() },
+                    // Absent means on. Every page saved before this feature existed has no such
+                    // key, so an upgrade leaves every screen showing exactly what it showed.
+                    active = obj.optBoolean("active", true),
                 )
             }
         }.getOrDefault(emptyList())
@@ -507,6 +560,7 @@ class PageStore(context: Context) {
                     page.posterFile?.let { put("poster", it) }
                     page.audioFile?.let { put("audio", it) }
                     page.audioTitle?.let { put("audioTitle", it) }
+                    put("active", page.active)
                 }
             )
         }
@@ -550,6 +604,7 @@ class PageStore(context: Context) {
         const val KEY_SAW_OFFSETS = "saw_offsets"
         const val KEY_HOME_JUMP = "follow_home_jump"
         const val KEY_HOME_KEYS = "home_key_events"
+        const val KEY_REAPPLY_NONCE = "reapply_nonce"
 
         const val MIN_PAGES = 1
         const val MAX_PAGES = 12

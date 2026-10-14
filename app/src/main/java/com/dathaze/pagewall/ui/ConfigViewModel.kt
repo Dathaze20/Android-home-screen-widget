@@ -18,6 +18,7 @@ import com.dathaze.pagewall.data.PhotoFit
 import com.dathaze.pagewall.data.TouchCompatibility
 import com.dathaze.pagewall.data.PageConfig
 import com.dathaze.pagewall.data.PageStore
+import com.dathaze.pagewall.data.ScreenActivation
 import com.dathaze.pagewall.backup.BackupCheck
 import com.dathaze.pagewall.backup.BackupManager
 import com.dathaze.pagewall.backup.BackupManifest
@@ -403,6 +404,83 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
     fun clearPage(pageIndex: Int) {
         store.clearPage(pageIndex)
         afterChange()
+    }
+
+    /**
+     * Switches one screen's saved media on or off. Deletes nothing.
+     *
+     * The engine reloads from the saved pages, so writing this is all the refresh that is
+     * needed — the same path a new photo already takes.
+     */
+    fun setPageActive(pageIndex: Int, active: Boolean) {
+        val ok = store.setActive(pageIndex, active)
+        afterChange()
+        uiState = uiState.copy(
+            noticeMessage = when {
+                !ok -> null
+                active -> "Screen ${pageIndex + 1} is showing its saved picture again"
+                else -> "Screen ${pageIndex + 1} switched off. Its picture is still saved."
+            },
+            errorMessage = if (ok) null else "That screen could not be saved — nothing changed.",
+        )
+    }
+
+    /** Switches one saved screen back on and redraws it, without going near a picker. */
+    fun reapplyPage(pageIndex: Int) {
+        val page = store.page(pageIndex)
+        if (!page.hasSavedMedia) {
+            uiState = uiState.copy(noticeMessage = "Screen ${pageIndex + 1} has nothing saved on it")
+            return
+        }
+        val plan = ScreenActivation.planReapply(listOf(page)) { store.fileFor(it) != null }
+        if (plan.hasProblems) {
+            afterChange()
+            uiState = uiState.copy(errorMessage = ScreenActivation.message(plan))
+            return
+        }
+        val ok = store.setActive(pageIndex, true)
+        // Even when it was already on, so that reapplying one screen always redraws it. Writing
+        // an unchanged value notifies nobody.
+        if (ok) store.requestReapply()
+        afterChange()
+        uiState = uiState.copy(
+            noticeMessage = if (ok) "Screen ${pageIndex + 1} reapplied" else null,
+            errorMessage = if (ok) null else "That screen could not be saved — nothing changed.",
+        )
+    }
+
+    /**
+     * Puts every saved screen back on display, using the media already stored.
+     *
+     * Opens no picker, copies no file, replaces no assignment and restores no backup: it reads
+     * what is saved, switches on the screens that are not, and lets the engine reload. A screen
+     * whose file has gone is reported rather than switched on, because switching it on would put
+     * up a blank screen and call it success.
+     */
+    fun reapplyAllSavedScreens() {
+        val saved = store.assignedPages()
+        val plan = ScreenActivation.planReapply(saved) { store.fileFor(it) != null }
+
+        val actions = ScreenActivation.actionsFor(plan)
+        val ok = if (actions.switchOn.isEmpty()) {
+            true
+        } else {
+            store.setActiveStates(actions.switchOn.associateWith { true })
+        }
+        // The case this button exists for: every screen already switched on, nothing to write,
+        // and the home screen still showing the wrong picture. Without this the press would
+        // change the app's own screen and nothing else.
+        if (ok && actions.redraw) store.requestReapply()
+        afterChange()
+
+        uiState = uiState.copy(
+            noticeMessage = if (ok && !plan.hasProblems) ScreenActivation.message(plan) else null,
+            errorMessage = when {
+                !ok -> "Your screens could not be saved — nothing changed."
+                plan.hasProblems -> ScreenActivation.message(plan)
+                else -> null
+            },
+        )
     }
 
     /** Manual correction, used only when the launcher's own count is wrong. */

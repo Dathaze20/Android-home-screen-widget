@@ -40,9 +40,26 @@ data class PageConfig(
     val posterFile: String? = null,
     val audioFile: String? = null,
     val audioTitle: String? = null,
+    /**
+     * Whether this page's saved media is currently shown on the home screen.
+     *
+     * Switching it off hides the picture and stops the soundtrack; it deletes nothing. The file
+     * names above are untouched, so switching it back on shows exactly the same media again
+     * without going near the gallery.
+     *
+     * Defaults to true, which is what makes an upgrade silent: a page saved by an older build
+     * has no stored value, and reads back as switched on.
+     */
+    val active: Boolean = true,
 ) {
     val hasMedia: Boolean get() = mediaFile != null
     val hasAudio: Boolean get() = audioFile != null
+
+    /** Whether there is anything saved here that switching off would hide. */
+    val hasSavedMedia: Boolean get() = mediaFile != null || audioFile != null
+
+    /** Saved, and currently being shown. What the tick on a tile means. */
+    val isShowing: Boolean get() = hasSavedMedia && active
 
     /** The file to show as a thumbnail: the poster frame for video, the media itself otherwise. */
     val thumbnailFile: String? get() = posterFile ?: mediaFile
