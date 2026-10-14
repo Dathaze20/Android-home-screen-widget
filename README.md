@@ -431,7 +431,7 @@ and its verification (`BackupArchiveTest`), the manifest (`BackupManifestTest`),
 would change (`BackupPlanTest`), which settings may travel (`BackupSettingsTest`), putting files
 in place without losing any (`MediaCommitTest`), refusing an incomplete export
 (`BackupExportTest`), and which pages a backup must carry (`PageSelectionTest`, `PageWriteTest`)
-— **169 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
+— **173 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
 produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized
