@@ -97,10 +97,12 @@ shows which page you are on and jumps you to that page's settings in one tap.
 ## What it looks like
 
 The app is one screen: your home screen pages as a grid of numbered tiles, each showing what is
-assigned to it, with the page you are on right now marked **NOW**. Tap a tile to change that
-page, long-press to clear it. Buttons underneath open the photo picker and the settings, and the
-menu at the top left holds the rest — page count, photo fit, crossfade, backup and restore, the
-diagnostics panel, and the update check.
+assigned to it. A tile with a **✓** is showing its saved picture; a dimmed tile marked **OFF** is
+switched off but still holds its picture. The page the wallpaper is tracking right now is marked
+**NOW** — a different thing from the tick, and shown differently on purpose. Tap a tile to open
+it, long-press for its options. Buttons underneath set the wallpaper, reapply every saved screen,
+open the photo picker and open the settings, and the menu at the top left holds the rest — page
+count, photo fit, crossfade, backup and restore, the diagnostics panel, and the update check.
 
 <!--
 SCREENSHOTS — four real photographs of the app running on a phone. Not mock-ups, not renders.
@@ -252,6 +254,44 @@ The same file restores onto a new phone or a fresh install. If you are coming fr
 older personal builds, see
 [Moving from a personal build](#moving-from-a-personal-build-to-the-public-app).
 
+### Switching a screen off, and putting it back
+
+A screen can hold a picture without showing it. Switching one off hides its picture and silences
+its soundtrack; **it deletes nothing**. The file stays exactly where it is, under the same name,
+on the same screen number, and switching it back on shows the same media again — no gallery, no
+picker, no backup.
+
+Long-press a tile for its options:
+
+| | |
+| --- | --- |
+| **Switch this screen off / on** | Hides or shows the saved picture. Nothing is deleted either way |
+| **Reapply this saved screen** | Switches it on and puts the saved picture back up |
+| **Clear screen** | The destructive one. Still asks first, and still removes the picture and soundtrack |
+
+The same switch is in a tile's details, which you reach by tapping it.
+
+A switched-off screen shows a plain background rather than another screen's picture, so nothing
+shifts onto a number it does not belong on.
+
+### Reapply All Saved Screens
+
+The button under **SET WALLPAPER**. It reads the screens you already have, switches on any that
+are off, and redraws them — keeping every picture on the number it was already on.
+
+It opens no picker, copies no file, replaces no assignment and restores no backup. If a saved
+file has genuinely gone missing it says which screen rather than switching it on and showing you
+a blank one, so *"5 saved screens reactivated"* means five screens really are showing their
+pictures.
+
+Use it when the home screen is showing the wrong picture, or the same one everywhere, and you
+want your saved set back without touching the gallery.
+
+> [!NOTE]
+> This reapplies **saved pictures**. If the wallpaper's page tracking itself is stuck — the same
+> page reported no matter which screen you are on — that is a different problem, and the
+> diagnostics panel is where it shows up. Reapplying will not move a stuck tracker.
+
 ### How it follows the pages
 
 Two methods, in order of preference:
@@ -343,6 +383,7 @@ the engine starts drawing again.
 | `wallpaper/PageMediaCache.kt` | Decodes via `ImageDecoder`, so a still photo and an animated GIF come back as the same kind of object |
 | `wallpaper/VideoPageController.kt` | Owns `MediaPlayer` and the surface while a video page is showing |
 | `data/PageStore.kt` | Page assignments, in SharedPreferences |
+| `data/ScreenActivation.kt` | Whether a saved screen is being shown, and what reapplying would do; pure, so it is unit tested |
 | `data/MediaImporter.kt` | Copies media into private storage; shrinks photos, leaves GIFs and videos untouched, saves a poster frame for videos |
 | `audio/PageAudioController.kt` | Optional per-page song (off by default) |
 | `ui/HomeScreen.kt` | The whole app: a grid of page tiles, with the pickers |
@@ -390,7 +431,7 @@ and its verification (`BackupArchiveTest`), the manifest (`BackupManifestTest`),
 would change (`BackupPlanTest`), which settings may travel (`BackupSettingsTest`), putting files
 in place without losing any (`MediaCommitTest`), refusing an incomplete export
 (`BackupExportTest`), and which pages a backup must carry (`PageSelectionTest`, `PageWriteTest`)
-— **149 tests in all**. They run in CI against the public variant before every build; no APK is
+— **169 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
 produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized

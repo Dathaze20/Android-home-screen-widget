@@ -21,6 +21,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -62,6 +65,8 @@ fun PageDetailsSheet(
     onRemoveAudio: () -> Unit,
     onClearPage: () -> Unit,
     onSetAsCurrent: () -> Unit,
+    onSetActive: (Boolean) -> Unit,
+    onReapply: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val bitmap by rememberPageBitmap(thumbnail, sampleSize = 2)
@@ -127,6 +132,29 @@ fun PageDetailsSheet(
                         modifier = Modifier.size(34.dp),
                     )
                 }
+            }
+
+            if (page.hasSavedMedia) {
+                // Whether the saved picture is in use. Separate from "Set as current tracker
+                // screen" below, which is about where the wallpaper thinks it is.
+                SheetAction(
+                    icon = if (page.active) Icons.Default.CheckCircle else Icons.Default.Visibility,
+                    label = if (page.active) "Switch this screen off" else "Switch this screen on",
+                    subtitle = if (page.active) {
+                        "Hides this picture without deleting it"
+                    } else {
+                        "Show the picture that is still saved here"
+                    },
+                    onClick = { onSetActive(!page.active) },
+                    tint = if (page.active) PageWallColors.Cyan else null,
+                )
+                SheetAction(
+                    icon = Icons.Default.Refresh,
+                    label = "Reapply this saved screen",
+                    subtitle = "Put the saved picture back up, without choosing a new one",
+                    onClick = onReapply,
+                )
+                HorizontalDivider()
             }
 
             if (page.hasMedia) {

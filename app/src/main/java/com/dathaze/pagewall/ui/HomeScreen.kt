@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Gif
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MusicNote
@@ -102,6 +104,9 @@ fun HomeScreen(
     onAssignMedia: (Int, Uri) -> Unit,
     onFillPages: (List<Uri>) -> Unit,
     onClearPage: (Int) -> Unit,
+    onSetPageActive: (Int, Boolean) -> Unit,
+    onReapplyPage: (Int) -> Unit,
+    onReapplyAll: () -> Unit,
     onOpenPageDetails: (Int) -> Unit,
     onApplyWallpaper: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -110,6 +115,7 @@ fun HomeScreen(
 ) {
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
     var confirmClearPage by remember { mutableStateOf<Int?>(null) }
+    var screenActions by remember { mutableStateOf<Int?>(null) }
     var confirmReplaceAll by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
 
@@ -168,9 +174,12 @@ fun HomeScreen(
                     }
                 },
                 onLongPressPage = { index ->
-                    if (state.pages.getOrNull(index)?.hasMedia == true) {
+                    // A long press offers choices; it no longer leads straight at the one
+                    // action that destroys something. Clearing is still available, still behind
+                    // its own confirmation, and now two deliberate taps away.
+                    if (state.pages.getOrNull(index)?.hasSavedMedia == true) {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        confirmClearPage = index
+                        screenActions = index
                     }
                 },
             )
@@ -198,6 +207,7 @@ fun HomeScreen(
                     if (assignedCount > 0) confirmReplaceAll = true
                     else multiPicker.launch(request)
                 },
+                onReapplyAll = onReapplyAll,
                 onOpenSettings = onOpenSettings,
             )
         }
@@ -225,6 +235,27 @@ fun HomeScreen(
         )
     }
 
+    screenActions?.let { index ->
+        val page = state.pages.getOrNull(index)
+        ScreenActionsDialog(
+            screen = index + 1,
+            active = page?.active ?: true,
+            onSetActive = { active ->
+                screenActions = null
+                onSetPageActive(index, active)
+            },
+            onReapply = {
+                screenActions = null
+                onReapplyPage(index)
+            },
+            onClear = {
+                screenActions = null
+                confirmClearPage = index
+            },
+            onDismiss = { screenActions = null },
+        )
+    }
+
     // A long press is easy to trigger by accident, so clearing a screen asks first.
     confirmClearPage?.let { index ->
         AlertDialog(
@@ -244,6 +275,58 @@ fun HomeScreen(
             },
         )
     }
+}
+
+/**
+ * What a long press offers: switch the saved picture off or on, put it back up, or clear it.
+ *
+ * Clearing sits apart from the other two and is coloured as the destructive thing it is. It only
+ * opens the existing confirmation — nothing is removed from this dialog.
+ */
+@Composable
+private fun ScreenActionsDialog(
+    screen: Int,
+    active: Boolean,
+    onSetActive: (Boolean) -> Unit,
+    onReapply: () -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Screen $screen") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    if (active) {
+                        "This screen is showing its saved picture."
+                    } else {
+                        "This screen is switched off. The picture is still saved."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Switching a screen off hides its picture and soundtrack. It deletes nothing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = { onSetActive(!active) }) {
+                    Text(if (active) "Switch this screen off" else "Switch this screen on")
+                }
+                TextButton(onClick = onReapply) { Text("Reapply this saved screen") }
+                TextButton(onClick = onClear) {
+                    Text("Clear screen", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 /**
@@ -408,7 +491,10 @@ private fun PageCard(
         append("Screen ${page.index + 1}, ")
         append(if (page.hasMedia) page.kindLabel else "empty")
         if (page.hasAudio) append(", has a soundtrack")
-        if (isTracked) append(", currently showing")
+        // Switched off and "currently showing" are different facts and are read out as such:
+        // one is whether the saved picture is in use, the other is where the wallpaper is.
+        if (page.hasSavedMedia) append(if (page.active) ", switched on" else ", switched off")
+        if (isTracked) append(", wallpaper is on this screen now")
     }
 
     Box(
@@ -477,12 +563,36 @@ private fun PageCard(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // The tick is the saved picture being switched on. It is deliberately not the NOW
+            // mark below, which is where the wallpaper is currently tracking.
+            if (page.isShowing) {
+                Badge(Icons.Default.CheckCircle, "Switched on", PageWallColors.Cyan)
+            }
             when (page.mediaKind) {
                 MediaKind.VIDEO -> if (page.hasMedia) Badge(Icons.Default.PlayCircle, "Video", null)
                 MediaKind.GIF -> if (page.hasMedia) Badge(Icons.Default.Gif, "GIF", null)
                 MediaKind.IMAGE -> Unit
             }
             if (page.hasAudio) Badge(Icons.Default.MusicNote, "Has soundtrack", null)
+        }
+
+        // Saved, but not being shown: dimmed rather than hidden, because the picture is still
+        // there and one tap brings it back.
+        if (page.hasSavedMedia && !page.active) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "OFF",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
         }
 
         // Which screen you are standing on, as a mark rather than a sentence.
@@ -536,6 +646,7 @@ private fun PrimaryActions(
     assignedCount: Int,
     onApplyWallpaper: () -> Unit,
     onChangeMedia: () -> Unit,
+    onReapplyAll: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -576,6 +687,26 @@ private fun PrimaryActions(
                 } else {
                     Text("SET WALLPAPER", style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 }
+            }
+        }
+
+        // Puts the pictures already saved back on the screens they were already on. It opens no
+        // picker and replaces nothing, which is the point: getting your own wallpapers back
+        // should never mean going through the gallery again.
+        if (assignedCount > 0) {
+            OutlinedButton(
+                onClick = onReapplyAll,
+                enabled = !state.busy,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(8.dp))
+                Text("Reapply All Saved Screens", maxLines = 2, textAlign = TextAlign.Center)
             }
         }
 

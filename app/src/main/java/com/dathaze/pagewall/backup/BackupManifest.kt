@@ -115,6 +115,13 @@ data class BackupPage(
     val posterFile: String? = null,
     val audioFile: String? = null,
     val audioTitle: String? = null,
+    /**
+     * Whether this screen was showing its media when the backup was taken.
+     *
+     * Absent in every backup written before the switch existed, and absent reads as on, so an
+     * older backup restores exactly as it always did.
+     */
+    val active: Boolean = true,
 ) {
     /** Whether this page carries a picture or a video. */
     val hasMedia: Boolean get() = mediaFile != null
@@ -129,6 +136,7 @@ data class BackupPage(
         posterFile?.let { put("posterFile", it) }
         audioFile?.let { put("audioFile", it) }
         audioTitle?.let { put("audioTitle", it) }
+        put("active", active)
     }
 
     companion object {
@@ -141,6 +149,7 @@ data class BackupPage(
                 posterFile = o.optString("posterFile").takeIf { it.isNotEmpty() },
                 audioFile = o.optString("audioFile").takeIf { it.isNotEmpty() },
                 audioTitle = o.optString("audioTitle").takeIf { it.isNotEmpty() },
+                active = o.optBoolean("active", true),
             )
         }
     }
