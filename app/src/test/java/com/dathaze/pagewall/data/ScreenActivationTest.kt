@@ -191,6 +191,53 @@ class ScreenActivationTest {
         assertEquals("fourth.jpg", pages.first { it.index == 3 }.mediaFile)
     }
 
+    // ---- what a reapply actually does ------------------------------------------------------
+
+    @Test
+    fun `reapply redraws even when all five screens are already switched on`() {
+        // The regression. Five screens, all on: there is nothing to write, and writing nothing
+        // tells the wallpaper nothing — SharedPreferences does not notify a listener about a
+        // value written unchanged. Without an explicit redraw the button would refresh the app's
+        // own grid and leave the home screen exactly as wrong as it was, which is the one case
+        // somebody presses it in.
+        val five = (0..4).map { PageConfig(it, mediaFile = "page_${it}_1.jpg") }
+        val actions = ScreenActivation.actionsFor(ScreenActivation.planReapply(five, ::allPresent))
+
+        assertTrue("nothing to switch on, so the redraw is the whole job", actions.redraw)
+        assertEquals(emptySet<Int>(), actions.switchOn)
+    }
+
+    @Test
+    fun `reapply switches on what is off and redraws as well`() {
+        val pages = listOf(photo, video.copy(active = false), withSong.copy(active = false))
+        val actions = ScreenActivation.actionsFor(ScreenActivation.planReapply(pages, ::allPresent))
+
+        assertEquals(setOf(1, 2), actions.switchOn)
+        assertTrue(actions.redraw)
+    }
+
+    @Test
+    fun `reapply with nothing saved asks for no redraw`() {
+        // There is nothing to put back, so promising a redraw would be promising something
+        // about an empty set of screens.
+        val actions = ScreenActivation.actionsFor(
+            ScreenActivation.planReapply(listOf(PageConfig(0), PageConfig(1)), ::allPresent)
+        )
+        assertFalse(actions.redraw)
+        assertEquals(emptySet<Int>(), actions.switchOn)
+    }
+
+    @Test
+    fun `an unreadable screen is never switched on, and the rest still redraw`() {
+        val pages = listOf(photo, video.copy(active = false))
+        val actions = ScreenActivation.actionsFor(
+            ScreenActivation.planReapply(pages) { it != "page_1_2.mp4" }
+        )
+        assertEquals(emptySet<Int>(), actions.switchOn)
+        // Screen 1 is still saved and still showing, so a redraw is still the right thing.
+        assertTrue(actions.redraw)
+    }
+
     // ---- the tick and NOW are different things ---------------------------------------------
 
     @Test

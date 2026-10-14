@@ -230,6 +230,21 @@ class PageStore(context: Context) {
         get() = prefs.getInt(KEY_SYNC_PAGE, 0)
         private set(value) = prefs.edit().putInt(KEY_SYNC_PAGE, value).apply()
 
+    /**
+     * Asks the wallpaper to draw the saved media again, changing nothing about what is saved.
+     *
+     * Needed because "reapply" has to work in the case where nothing needs changing: when every
+     * screen is already switched on there is nothing to write, and SharedPreferences does not
+     * notify a listener about a value written unchanged, so the engine would never hear that it
+     * had been asked for anything.
+     *
+     * The value only has to differ from the last one. It says nothing about which page is
+     * showing and moves no tracker.
+     */
+    fun requestReapply() {
+        prefs.edit().putLong(KEY_REAPPLY_NONCE, prefs.getLong(KEY_REAPPLY_NONCE, 0L) + 1L).apply()
+    }
+
     /** The escape hatch: "the launcher is on this screen, catch up". */
     fun requestManualSync(page: Int) {
         prefs.edit()
@@ -589,6 +604,7 @@ class PageStore(context: Context) {
         const val KEY_SAW_OFFSETS = "saw_offsets"
         const val KEY_HOME_JUMP = "follow_home_jump"
         const val KEY_HOME_KEYS = "home_key_events"
+        const val KEY_REAPPLY_NONCE = "reapply_nonce"
 
         const val MIN_PAGES = 1
         const val MAX_PAGES = 12

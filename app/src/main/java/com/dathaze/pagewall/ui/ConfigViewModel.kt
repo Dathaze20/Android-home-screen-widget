@@ -439,6 +439,9 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         val ok = store.setActive(pageIndex, true)
+        // Even when it was already on, so that reapplying one screen always redraws it. Writing
+        // an unchanged value notifies nobody.
+        if (ok) store.requestReapply()
         afterChange()
         uiState = uiState.copy(
             noticeMessage = if (ok) "Screen ${pageIndex + 1} reapplied" else null,
@@ -458,11 +461,16 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         val saved = store.assignedPages()
         val plan = ScreenActivation.planReapply(saved) { store.fileFor(it) != null }
 
-        val ok = if (plan.switchedOn.isEmpty()) {
+        val actions = ScreenActivation.actionsFor(plan)
+        val ok = if (actions.switchOn.isEmpty()) {
             true
         } else {
-            store.setActiveStates(plan.switchedOn.associateWith { true })
+            store.setActiveStates(actions.switchOn.associateWith { true })
         }
+        // The case this button exists for: every screen already switched on, nothing to write,
+        // and the home screen still showing the wrong picture. Without this the press would
+        // change the app's own screen and nothing else.
+        if (ok && actions.redraw) store.requestReapply()
         afterChange()
 
         uiState = uiState.copy(

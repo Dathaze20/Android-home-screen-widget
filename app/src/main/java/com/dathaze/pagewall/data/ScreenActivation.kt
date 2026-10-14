@@ -62,6 +62,29 @@ object ScreenActivation {
         return ReapplyPlan(switchedOn, alreadyOn, unreadable)
     }
 
+    /**
+     * What a reapply should actually do.
+     *
+     * Separate from the plan because the interesting case writes nothing: when every screen is
+     * already switched on there is no state to change, and that is exactly when somebody is
+     * pressing the button — because the home screen is showing the wrong picture. Asking for a
+     * redraw has to be a decision of its own, or that press does nothing at all.
+     */
+    data class ReapplyActions(
+        /** Screens to switch back on. Empty when they are all on already. */
+        val switchOn: Set<Int>,
+        /** Whether to ask the wallpaper to draw the saved media again. */
+        val redraw: Boolean,
+    )
+
+    fun actionsFor(plan: ReapplyPlan): ReapplyActions = ReapplyActions(
+        switchOn = plan.switchedOn.toSet(),
+        // Whenever there is something saved to put back — including when nothing needed
+        // switching on. Not when there is nothing saved at all, where a redraw would be a
+        // promise about an empty set of screens.
+        redraw = plan.showing > 0,
+    )
+
     /** What to tell someone after a reapply. Counts screens, not files, and never overstates. */
     fun message(plan: ReapplyPlan): String {
         val good = when (plan.showing) {

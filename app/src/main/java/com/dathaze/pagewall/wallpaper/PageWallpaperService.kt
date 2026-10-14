@@ -601,6 +601,10 @@ class PageWallpaperService : WallpaperService() {
                     updateHomeReceiver()
                     return
                 }
+                // Asked for by hand, and it wants precisely what a media change wants: drop the
+                // caches and draw the saved media again. It is not a page change — currentPage,
+                // the offsets and the tracker are not touched by this branch or the render below.
+                PageStore.KEY_REAPPLY_NONCE,
                 PageStore.KEY_PAGES -> {
                     stopAnimation()
                     unplayableVideos.clear()
