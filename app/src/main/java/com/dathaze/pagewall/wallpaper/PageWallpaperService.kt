@@ -563,9 +563,11 @@ class PageWallpaperService : WallpaperService() {
             extras: Bundle?,
             resultRequested: Boolean,
         ): Bundle? {
-            if (action == COMMAND_TAP) {
-                // Launchers send this on a double tap on empty space: a shortcut into the setup
-                // screen without hunting for the app icon.
+            // Off unless asked for. Which gesture produces this command is the launcher's
+            // choice, not ours: AOSP-derived launchers send it for a single tap on empty space,
+            // and again when a long press lifts, so opening the app here made the home screen
+            // unusable on them. See WallpaperTap and issue #7.
+            if (WallpaperTap.opensApp(action, store.tapOpensApp)) {
                 PageWidgetProvider.launchConfig(this@PageWallpaperService, currentPage)
             }
             return super.onCommand(action, x, y, z, extras, resultRequested)
@@ -835,7 +837,6 @@ class PageWallpaperService : WallpaperService() {
 
     private companion object {
         const val TAG = "PageWallpaper"
-        const val COMMAND_TAP = "android.wallpaper.tap"
         const val FRAME_INTERVAL_MS = 16L
         const val DRAW_RETRY_MS = 32L
         /** About a second of waiting for a surface, then give up rather than spin. */

@@ -78,6 +78,7 @@ data class ConfigUiState(
     val syncOnReturnHome: Boolean = true,
     /** Experimental: treat a launcher-initiated scroll as the Home button. Off by default. */
     val followLauncherHomeJump: Boolean = false,
+    val tapOpensApp: Boolean = false,
     /** Home presses the system actually reported. Zero with the switch on means it cannot work. */
     val homeKeyEvents: Int = 0,
     /** Raw touch events forwarded by the launcher, whether or not they became swipes. */
@@ -191,6 +192,7 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
             defaultHomePage = store.defaultHomePage,
             syncOnReturnHome = store.syncOnReturnHome,
             followLauncherHomeJump = store.followLauncherHomeJump,
+            tapOpensApp = store.tapOpensApp,
             homeKeyEvents = store.homeKeyEvents,
             touchEventsRaw = store.touchEventCountRaw,
             recognisedSwipes = store.recognisedSwipeCount,
@@ -579,6 +581,11 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setFollowLauncherHomeJump(enabled: Boolean) {
         store.followLauncherHomeJump = enabled
+        afterChange()
+    }
+
+    fun setTapOpensApp(enabled: Boolean) {
+        store.tapOpensApp = enabled
         afterChange()
     }
 

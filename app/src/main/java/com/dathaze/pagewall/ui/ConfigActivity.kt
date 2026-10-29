@@ -183,6 +183,7 @@ class ConfigActivity : ComponentActivity() {
                         onDefaultHomePageChange = viewModel::setDefaultHomePage,
                         onSyncOnReturnHomeChange = viewModel::setSyncOnReturnHome,
                         onFollowHomeJumpChange = viewModel::setFollowLauncherHomeJump,
+                        onTapOpensAppChange = viewModel::setTapOpensApp,
                         onSyncWallpaperTo = viewModel::syncWallpaperTo,
                         onRestartOnboarding = {
                             settingsOpen = false

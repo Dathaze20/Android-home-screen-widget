@@ -212,6 +212,17 @@ class PageStore(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_HOME_JUMP, value).apply()
 
     /**
+     * Whether tapping the wallpaper opens the app.
+     *
+     * Off, because Android does not say what kind of touch produced the tap command and
+     * launchers disagree: on the ones that report every single tap, having this on means a tap
+     * on empty space opens the app and a long press opens it over the launcher's own menu.
+     */
+    var tapOpensApp: Boolean
+        get() = prefs.getBoolean(KEY_TAP_OPENS_APP, false)
+        set(value) = prefs.edit().putBoolean(KEY_TAP_OPENS_APP, value).apply()
+
+    /**
      * Home presses the system has actually told the wallpaper about.
      *
      * The decisive reading: if this stays at zero with the switch on, the broadcast is not
@@ -604,6 +615,7 @@ class PageStore(context: Context) {
         const val KEY_SAW_OFFSETS = "saw_offsets"
         const val KEY_HOME_JUMP = "follow_home_jump"
         const val KEY_HOME_KEYS = "home_key_events"
+        const val KEY_TAP_OPENS_APP = "tap_opens_app"
         const val KEY_REAPPLY_NONCE = "reapply_nonce"
 
         const val MIN_PAGES = 1

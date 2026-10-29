@@ -402,6 +402,18 @@ the engine starts drawing again.
 Everything you pick is **copied** into the app's own storage rather than linked by URI, so a page
 keeps working after you delete the original from your gallery.
 
+### Tapping the wallpaper
+
+Nothing happens, by design. Android tells a live wallpaper that you touched it but not *how*, and
+launchers disagree about which gesture counts: many report an ordinary single tap, and report one
+again the moment a long press lifts. An app that opens itself on that signal takes over the home
+screen — one tap on empty space opens it, and a long press opens it on top of the launcher's own
+menu, so you cannot reach widgets or wallpaper settings.
+
+There is a switch for it under **Home screens** if you want it, off by default. On a launcher that
+only reports double taps it is a handy shortcut; on the rest it is the behaviour described above,
+which is why nobody gets it without asking.
+
 ## Known limitations
 
 - **One UI has no per-page wallpaper of its own.** It treats the whole home area as one wallpaper
@@ -431,7 +443,7 @@ and its verification (`BackupArchiveTest`), the manifest (`BackupManifestTest`),
 would change (`BackupPlanTest`), which settings may travel (`BackupSettingsTest`), putting files
 in place without losing any (`MediaCommitTest`), refusing an incomplete export
 (`BackupExportTest`), and which pages a backup must carry (`PageSelectionTest`, `PageWriteTest`)
-— **173 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
+— **178 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
 produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized

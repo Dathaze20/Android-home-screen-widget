@@ -32,6 +32,7 @@ object BackupSettings {
         PageStore.KEY_DEFAULT_HOME,
         PageStore.KEY_SYNC_HOME,
         PageStore.KEY_HOME_JUMP,
+        PageStore.KEY_TAP_OPENS_APP,
         PageStore.KEY_CALIBRATION_MIN,
         PageStore.KEY_CALIBRATION_MAX,
         PageStore.KEY_ONBOARDED,

@@ -75,6 +75,7 @@ fun SettingsSheet(
     onDefaultHomePageChange: (Int) -> Unit,
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
     onFollowHomeJumpChange: (Boolean) -> Unit,
+    onTapOpensAppChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
     onRestartOnboarding: () -> Unit,
     onCheckForUpdates: () -> Unit,
@@ -125,6 +126,7 @@ fun SettingsSheet(
                 onDefaultHomePageChange,
                 onSyncOnReturnHomeChange,
                 onFollowHomeJumpChange,
+                onTapOpensAppChange,
                 onSyncWallpaperTo,
             )
 
@@ -738,6 +740,7 @@ private fun HomeSyncRow(
     onDefaultHomePageChange: (Int) -> Unit,
     onSyncOnReturnHomeChange: (Boolean) -> Unit,
     onFollowHomeJumpChange: (Boolean) -> Unit,
+    onTapOpensAppChange: (Boolean) -> Unit,
     onSyncWallpaperTo: (Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -766,6 +769,17 @@ private fun HomeSyncRow(
                 "Off until you turn it on, and nothing is listening while it is off.",
             checked = state.followLauncherHomeJump,
             onCheckedChange = onFollowHomeJumpChange,
+        )
+
+        SettingSwitch(
+            title = "Tap the wallpaper to open this app",
+            subtitle = "Off, and best left off on most phones. Android tells a wallpaper that " +
+                "you touched it but not how, and launchers disagree about which gesture counts " +
+                "— many report an ordinary single tap, and report one again when a long press " +
+                "lifts. With this on, those phones open this app when you tap an empty part of " +
+                "the home screen, and over the launcher's own menu when you long-press it.",
+            checked = state.tapOpensApp,
+            onCheckedChange = onTapOpensAppChange,
         )
         Text(
             if (state.followLauncherHomeJump) {
