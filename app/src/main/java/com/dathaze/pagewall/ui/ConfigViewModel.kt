@@ -28,6 +28,10 @@ import com.dathaze.pagewall.backup.ExistingPage
 import com.dathaze.pagewall.backup.ExportResult
 import com.dathaze.pagewall.backup.RestoreResult
 import com.dathaze.pagewall.update.AppUpdater
+import com.dathaze.pagewall.update.AvailableUpdate
+import com.dathaze.pagewall.update.NoticeOutcome
+import com.dathaze.pagewall.update.UpdateNotice
+import com.dathaze.pagewall.update.UpdateNoticeStore
 import com.dathaze.pagewall.update.UpdateState
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
 import com.dathaze.pagewall.widget.PageWidgetProvider
@@ -91,6 +95,20 @@ data class ConfigUiState(
     val appVersionName: String = "",
     /** Where the in-app updater has got to. Idle until the user taps Check for updates. */
     val updateState: UpdateState = UpdateState.Idle,
+    /**
+     * A newer release the quiet check knows about, from this launch or a remembered answer.
+     *
+     * Null when the phone is on the latest version, which is the ordinary state and the one in
+     * which nothing at all is shown. Drives both the strip and the dot beside Check for updates.
+     */
+    val availableUpdate: AvailableUpdate? = null,
+    /**
+     * Whether the strip itself is up.
+     *
+     * Separate from [availableUpdate] because dismissing the strip is not the same as the update
+     * going away: the dot stays while this is false.
+     */
+    val updateNoticeVisible: Boolean = false,
     /** Where backup and restore have got to. Idle until a button is tapped. */
     val backupState: BackupState = BackupState.Idle,
     val busy: Boolean = false,
@@ -141,6 +159,10 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
 
     private val store = PageStore(application)
     private val updater = AppUpdater(application)
+    private val notices = UpdateNoticeStore(application)
+
+    /** One automatic check per launch, however many times the screen is rebuilt. */
+    private var autoCheckStarted = false
 
     var uiState by mutableStateOf(ConfigUiState())
         private set
@@ -215,12 +237,118 @@ class ConfigViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { updater.check(AppUpdater.GITHUB_REPO) }
             uiState = uiState.copy(updateState = result)
+            // A press is itself a check, so the quiet one has no reason to ask again today, and
+            // what it found feeds the same dot. The strip stays down either way: the row the
+            // person is looking at is already saying all of it.
+            record(UpdateNotice.outcome(result), announce = false)
         }
+    }
+
+    /**
+     * The quiet check: a few seconds after the app opens, at most once a day, and silent unless
+     * it finds something.
+     *
+     * Deliberately kept away from [ConfigUiState.updateState], which belongs to the person who
+     * pressed Check for updates. This one must never put a spinner, a failure or a progress bar
+     * in front of someone who asked for none of it, so a check that fails here leaves no trace
+     * at all: no connection, a GitHub error and a rate limit are all handled by saying nothing
+     * and trying again next launch.
+     */
+    fun autoCheckForUpdates() {
+        if (autoCheckStarted) return
+        autoCheckStarted = true
+
+        // What was found last time still stands, so the strip and the dot come back with no
+        // connection and on every launch inside the window without a single request. An answer
+        // about a version now installed — someone who updated by another route — is dropped
+        // rather than shown, because what is remembered has no way of knowing that happened.
+        val cached = notices.cached()
+        if (cached != null && !UpdateNotice.stillNewer(cached, updater.installedVersionCode)) {
+            notices.forget()
+        }
+        applyNotice(cached, announce = true)
+
+        if (!UpdateNotice.dueForCheck(notices.lastCheckedAt, System.currentTimeMillis())) return
+
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { updater.check(AppUpdater.GITHUB_REPO) }
+            record(UpdateNotice.outcome(result), announce = true)
+        }
+    }
+
+    /**
+     * Stores what a finished check found, and says so when [announce] is set.
+     *
+     * Only a settled answer counts as the day's check. A release whose APK has not finished
+     * building yet reaches [NoticeOutcome.Silent] along with the failures, which is right: it is
+     * a state that changes within minutes of the tag being pushed, and remembering it for a day
+     * would mean missing the release it is about.
+     */
+    private fun record(outcome: NoticeOutcome, announce: Boolean) {
+        when (outcome) {
+            is NoticeOutcome.Found -> {
+                notices.lastCheckedAt = System.currentTimeMillis()
+                notices.remember(outcome.update)
+                applyNotice(outcome.update, announce)
+            }
+
+            NoticeOutcome.None -> {
+                notices.lastCheckedAt = System.currentTimeMillis()
+                notices.forget()
+                applyNotice(null, announce)
+            }
+
+            NoticeOutcome.Silent -> Unit
+        }
+    }
+
+    /** Works out what the strip and the dot should be showing, and nothing else. */
+    private fun applyNotice(update: AvailableUpdate?, announce: Boolean) {
+        val installed = updater.installedVersionCode
+        val worth = if (UpdateNotice.stillNewer(update, installed)) update else null
+        val show = announce && UpdateNotice.bannerVisible(
+            cached = worth,
+            installedVersionCode = installed,
+            snoozedTag = notices.snoozedTag,
+            snoozedAt = notices.snoozedAt,
+            now = System.currentTimeMillis(),
+        )
+        uiState = uiState.copy(availableUpdate = worth, updateNoticeVisible = show)
+    }
+
+    /**
+     * Takes the strip down and holds that version back for a day.
+     *
+     * The dot beside Check for updates is left alone on purpose, so dismissing the strip does not
+     * make the news vanish with it.
+     */
+    fun dismissUpdateNotice() {
+        uiState.availableUpdate?.let { notices.snooze(it.tag, System.currentTimeMillis()) }
+        uiState = uiState.copy(updateNoticeVisible = false)
+    }
+
+    /**
+     * What Update Now does: hands the strip's find to the update row and takes the strip down.
+     *
+     * Nothing is downloaded here. The row is the flow that has always done the downloading, with
+     * its own confirmation, its progress and Android's installer at the end of it, and this only
+     * puts it in the state a manual check would have left it in.
+     */
+    fun offerUpdateFromNotice() {
+        val update = uiState.availableUpdate ?: return
+        uiState = uiState.copy(
+            updateState = UpdateState.Available(update),
+            updateNoticeVisible = false,
+        )
     }
 
     /** Downloads the release found by [checkForUpdates] and opens Android's installer on it. */
     fun downloadUpdate() {
-        val update = (uiState.updateState as? UpdateState.Available)?.update ?: return
+        // Falls back to what the quiet check found, so the row offers Download and install to
+        // someone who opened the sheet on the dot without pressing Check first.
+        val update = (uiState.updateState as? UpdateState.Available)?.update
+            ?: uiState.availableUpdate
+            ?: return
         uiState = uiState.copy(updateState = UpdateState.Downloading(0))
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {

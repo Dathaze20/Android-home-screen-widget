@@ -19,9 +19,12 @@ app closed.
 - **Backup and restore, with the media included.** One zip carries your pictures, videos and
   audio as well as the page assignments and settings — saved to Downloads, checked as it is
   written, and restored without overwriting anything already on a page.
-- **It updates itself from GitHub.** **Menu → Settings → Check for updates** finds the newest
-  release, downloads the APK and hands it to Android's installer. No store account, and nothing
-  to uninstall.
+- **It updates itself from GitHub, and tells you when there is one.** A few seconds after the
+  app opens it asks GitHub whether a newer release exists, at most once a day, and says so in a
+  strip at the bottom of its own screen — the version, the size, **Update Now** and an ✕.
+  Nothing appears when you are up to date. **Menu → Settings → Check for updates** still does
+  the same thing on demand, and either way the APK is downloaded and handed to Android's
+  installer only after you press for it. No store account, and nothing to uninstall.
 
 One app, one APK, one update channel: **`io.github.dathaze20.pagewallpaper`**, signed with a
 private release key.
@@ -342,9 +345,19 @@ second.
 
 ### Updating the app
 
-Open **Settings** (the icon at the top of the app) and the first row is **Check for updates**. It
-asks GitHub for the newest release, and if there is one newer than the build you are running it
-offers **Download and install**. The APK is downloaded inside the app and handed to Android's own
+The app checks for itself. A few seconds after it opens — never during startup, and never while
+the setup guide is up — it asks GitHub whether there is a newer release, and if there is, a strip
+appears at the bottom of the screen naming the version and the download size, with **Update Now**
+and an ✕. If you are on the latest version it shows nothing at all. **Update Now** opens the
+settings sheet on the update row below; the ✕ holds that version back for a day and leaves a small
+teal dot beside **Check for updates**, so dismissing it does not make the news disappear. The
+automatic check asks at most once a day, remembers the answer so later launches need no request,
+and goes quiet without a word if there is no connection, if GitHub is having a bad day or if it is
+rate-limiting us. It is not an Android notification and asks for no notification permission.
+
+You can also ask at any time. Open **Settings** (the icon at the top of the app) and the first row
+is **Check for updates**. It asks GitHub for the newest release, and if there is one newer than the
+build you are running it offers **Download and install**. The APK is downloaded inside the app and handed to Android's own
 installer, which still asks you to confirm — nothing installs silently. The first time, Android
 will want permission to install apps from Page Wallpaper; the sheet has a button that opens that
 switch.
@@ -355,6 +368,15 @@ uninstall first. Uninstalling **would** lose your pages — the photos live in t
 storage, where nothing else on the phone has a copy. Export a backup first if you ever need to.
 
 Only the public build is published, so there is one release to check and one file in it.
+
+**What the update check sends.** One ordinary HTTPS request to `api.github.com` for this
+repository's latest release, and, when you press to install, one more to download the APK from
+GitHub's own download host. No account, no identifier, no analytics: the request carries nothing
+but a `PageWallpaper` user agent, so GitHub sees what any visitor to the releases page would —
+an IP address and the fact that someone asked. Nothing is sent anywhere else, by this check or by
+any other part of the app, and your pictures never leave the phone. The automatic check is the
+same request made on the app's own initiative instead of yours; if you would rather it never
+happened, the one request a day is all there is to it.
 
 Releases come from a tag: pushing `v1.0.1` runs `.github/workflows/release.yml`, which turns the
 tag into a versionCode (`major × 10000 + minor × 100 + patch`, so `v1.0.1` is `10001`), builds the
@@ -393,6 +415,9 @@ the engine starts drawing again.
 | `update/UpdateVersion.kt` | The tag-to-versionCode rule and the update states; no Android imports, so it is unit tested |
 | `update/AppUpdater.kt` | Asks GitHub for the latest release, downloads the APK, hands it to the installer |
 | `update/UpdateAssets.kt` | Picks the release asset belonging to this build; pure, so it is unit tested |
+| `update/UpdateNotice.kt` | When to ask, what to remember, how long a dismissal lasts, what the strip says; pure, so it is unit tested |
+| `update/UpdateNoticeStore.kt` | The cached answer and the two timestamps behind it, in their own SharedPreferences file |
+| `ui/UpdateBanner.kt` | The strip itself, and the dot beside Check for updates |
 | `wallpaper/FrameGate.kt` | Whether the engine may touch the surface or paint it; pure, so it is unit tested |
 | `backup/BackupManager.kt` | Export to Downloads and restore from a picked file; the Android-shaped half |
 | `backup/BackupArchive.kt` | The zip itself: writing, hashing, verifying, extracting; pure, so it is unit tested |
@@ -437,13 +462,15 @@ AGP 9.4 / Kotlin 2.4 / Gradle 9.8 / compileSdk 37, targetSdk 35, minSdk 28.
 
 Unit tests cover the page arithmetic (`PageMathTest`), the swipe thresholds (`SwipeMathTest`), the
 resync rules (`SyncPolicyTest`), the gesture tracker (`GestureTrackerTest`), the update version
-rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`), the tile grid
+rule (`UpdateVersionTest`), the release-asset matching (`UpdateAssetsTest`), the update notice —
+how often GitHub is asked, how long a dismissal holds, and what the strip says (`UpdateNoticeTest`)
+— the tile grid
 (`GridLayoutTest`), the draw gate (`FrameGateTest`), and the whole backup format — the archive
 and its verification (`BackupArchiveTest`), the manifest (`BackupManifestTest`), what a restore
 would change (`BackupPlanTest`), which settings may travel (`BackupSettingsTest`), putting files
 in place without losing any (`MediaCommitTest`), refusing an incomplete export
 (`BackupExportTest`), and which pages a backup must carry (`PageSelectionTest`, `PageWriteTest`)
-— **178 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
+— **209 tests in all**, switching screens off and on among them. They run in CI against the public variant before every build; no APK is
 produced if they fail.
 
 Every screen is built as a fixed bar, a scrolling middle and a pinned bar, and tiles are sized

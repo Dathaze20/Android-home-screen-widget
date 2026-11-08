@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.dathaze.pagewall.update.UpdateNotice
 import com.dathaze.pagewall.wallpaper.PageWallpaperService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -110,8 +113,27 @@ class ConfigActivity : ComponentActivity() {
                             onApplyWallpaper = ::applyWallpaper,
                             onOpenSettings = { settingsOpen = true },
                             onDismissError = viewModel::dismissError,
+                            // The strip hands its find to the update row and opens the sheet on
+                            // it. That row is the only thing in the app that downloads anything,
+                            // and it still waits for a press there.
+                            onUpdateNow = {
+                                viewModel.offerUpdateFromNotice()
+                                settingsOpen = true
+                            },
+                            onDismissUpdateNotice = viewModel::dismissUpdateNotice,
                             thumbnailFor = viewModel::thumbnailFor,
                         )
+                    }
+                }
+
+                // The quiet update check, a few seconds after the app is up and only once the
+                // setup screen is behind us. Late on purpose: opening the app already reads the
+                // pages and decodes thumbnails, and a network call thrown into that is the one
+                // that makes the first frame late. Nothing is shown unless it finds something.
+                if (state.setupComplete) {
+                    LaunchedEffect(Unit) {
+                        delay(UpdateNotice.FIRST_DELAY_MS)
+                        viewModel.autoCheckForUpdates()
                     }
                 }
 
