@@ -2,8 +2,10 @@ package com.dathaze.pagewall.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -82,8 +84,15 @@ fun UpdateBanner(
 ) {
     AnimatedVisibility(
         visible = visible && update != null,
-        enter = slideInVertically(animationSpec = tween(350)) { it } + fadeIn(tween(350)),
-        exit = slideOutVertically(animationSpec = tween(200)) { it } + fadeOut(tween(200)),
+        // Slides up, as the strip it is modelled on does. Expanding as well as sliding is the
+        // difference between the action bar below shifting down once, abruptly, and it moving
+        // with the strip: this one sits in the layout rather than floating over it.
+        enter = expandVertically(tween(350)) +
+            slideInVertically(animationSpec = tween(350)) { it / 2 } +
+            fadeIn(tween(350)),
+        exit = shrinkVertically(tween(200)) +
+            slideOutVertically(animationSpec = tween(200)) { it / 2 } +
+            fadeOut(tween(200)),
         modifier = modifier,
     ) {
         // Drawn from whatever is in hand, so the strip still has something to show during the
