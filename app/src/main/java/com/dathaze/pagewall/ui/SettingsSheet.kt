@@ -246,12 +246,27 @@ private fun UpdateRow(
     onAllowInstalls: () -> Unit,
     onDismissUpdate: () -> Unit,
 ) {
-    val update = state.updateState
+    // What the quiet check already found is offered here without Check being pressed: that
+    // check has asked GitHub today, the dot beside this row leads here, and making the person
+    // press a button to be told again what the app already knows is a dead end. Pressing Check
+    // still asks GitHub afresh, exactly as before.
+    val update = if (state.updateState is UpdateState.Idle && state.availableUpdate != null) {
+        UpdateState.Available(state.availableUpdate)
+    } else {
+        state.updateState
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Check for updates", fontWeight = FontWeight.SemiBold)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Check for updates", fontWeight = FontWeight.SemiBold)
+                    // Stays while an update is known, dismissed strip or not.
+                    if (state.availableUpdate != null) UpdateDot()
+                }
                 Text(
                     "Version ${state.appVersionName.ifEmpty { "unknown" }}",
                     style = MaterialTheme.typography.bodySmall,

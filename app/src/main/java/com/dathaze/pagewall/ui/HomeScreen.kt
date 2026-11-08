@@ -111,6 +111,10 @@ fun HomeScreen(
     onApplyWallpaper: () -> Unit,
     onOpenSettings: () -> Unit,
     onDismissError: () -> Unit,
+    /** Update Now on the notice strip: hands it to the update row in the settings sheet. */
+    onUpdateNow: () -> Unit,
+    /** The strip's ✕: takes it down and holds that version back for a day. */
+    onDismissUpdateNotice: () -> Unit,
     thumbnailFor: (PageConfig) -> File?,
 ) {
     var pendingPage by rememberSaveable { mutableIntStateOf(0) }
@@ -189,6 +193,17 @@ fun HomeScreen(
                 MessageBanner(banner, state.errorMessage != null, onDismissError)
             }
         }
+
+        // Pinned above the action bar rather than inside the scrolling area, so a notice is
+        // seen without scrolling for it, and still cannot cover the buttons below. It takes up
+        // no room at all while there is nothing to say, which is almost always.
+        UpdateBanner(
+            visible = state.updateNoticeVisible,
+            update = state.availableUpdate,
+            installedVersionName = state.appVersionName,
+            onUpdateNow = onUpdateNow,
+            onDismiss = onDismissUpdateNotice,
+        )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         // Pinned below the scrolling area. Setting the wallpaper is the one thing that must never
