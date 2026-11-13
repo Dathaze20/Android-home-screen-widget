@@ -29,6 +29,15 @@ app closed.
 One app, one APK, one update channel: **`io.github.dathaze20.pagewallpaper`**, signed with a
 private release key.
 
+**How it was built:** the problem, the engineering, an external user's bug report, and what is
+still unverified are written up in the [case study](CASE_STUDY.md).
+
+**Contents:** [Download](#download) · [The simple explanation](#the-simple-explanation) ·
+[Installing](#installing-it-on-your-phone) · [Photos, GIFs and videos](#yes-to-photos-gifs-and-videos) ·
+[Setting it up](#setting-it-up) · [Backup and restore](#backup-and-restore) ·
+[Updating](#updating-the-app) · [How it works](#how-it-works-for-the-curious) ·
+[Known limitations](#known-limitations) · [Diagnostics](#diagnostics) · [Signing](#signing)
+
 ## Download
 
 **[⬇ Latest release](https://github.com/Dathaze20/Android-home-screen-widget/releases/latest)** — grab the APK on your phone and tap it.
@@ -340,8 +349,9 @@ second.
 - **Share it in.** Gallery → share a photo or video → **Page Wallpaper** → tap a page.
 - **Tap the widget.** Drop the Page Wallpaper widget on your home screen; it opens the settings for
   whichever page you are standing on.
-- **Double-tap the wallpaper.** On launchers that pass the gesture along, a double tap on empty
-  home screen space opens the same screen.
+- **Double-tap the wallpaper.** Off by default; switch it on under **Home screens** in Settings.
+  On launchers that pass the gesture along, a double tap on empty home screen space then opens the
+  same screen. See [Tapping the wallpaper](#tapping-the-wallpaper) for why it is off.
 
 ### Updating the app
 
