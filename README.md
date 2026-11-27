@@ -2,6 +2,8 @@
 
 ⭐ **If Page Wallpaper is useful to you, please star this repo.** It helps other people find it. Want to support development? [Buy me a coffee](https://buymeacoffee.com/dathaze20j).
 
+🎮 **Also on itch.io:** [dathaze20.itch.io/page-wallpaper](https://dathaze20.itch.io/page-wallpaper). Same official build, with an optional donation if you want to support it.
+
 [![Build APK](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml/badge.svg)](https://github.com/Dathaze20/Android-home-screen-widget/actions/workflows/build-apk.yml)
 
 **A different photo, GIF or video on every home screen page.**
